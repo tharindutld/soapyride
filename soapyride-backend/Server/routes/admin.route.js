@@ -612,6 +612,36 @@ const INITIAL_INVOICES = [
 ];
 
 // In-memory store synchronized with MongoDB when connected
+const INITIAL_STAFF = [
+  {
+    _id: 'staff-101',
+    fullname: 'Tharindu Dissanayake',
+    email: 'admin@soapyride.com',
+    phone: '0771122334',
+    role: 'admin',
+    staffRole: 'Admin',
+    createdAt: new Date(Date.now() - 86400000 * 60)
+  },
+  {
+    _id: 'staff-102',
+    fullname: 'Nuwan Bandara',
+    email: 'nuwan.b@soapyride.com',
+    phone: '0774512369',
+    role: 'mechanic',
+    staffRole: 'Mechanic',
+    createdAt: new Date(Date.now() - 86400000 * 30)
+  },
+  {
+    _id: 'staff-103',
+    fullname: 'Dilshan Perera',
+    email: 'dilshan.sales@soapyride.com',
+    phone: '0714455667',
+    role: 'sales',
+    staffRole: 'Sales Person',
+    createdAt: new Date(Date.now() - 86400000 * 15)
+  }
+];
+
 let memoryStore = {
   vehicles: [...INITIAL_VEHICLES],
   services: [...INITIAL_SERVICES],
@@ -619,7 +649,8 @@ let memoryStore = {
   appointments: [...INITIAL_APPOINTMENTS],
   jobCards: [...INITIAL_JOB_CARDS],
   inventory: [...INITIAL_INVENTORY],
-  invoices: [...INITIAL_INVOICES]
+  invoices: [...INITIAL_INVOICES],
+  staff: [...INITIAL_STAFF]
 };
 
 // Seed MongoDB collections if connected and empty
@@ -702,34 +733,56 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Also check MongoDB for any user with role === 'admin'
+    // Also check MongoDB for any user with role in ['admin', 'mechanic', 'sales']
     if (isDbConnected()) {
       const user = await User.findOne({ email: normalizedEmail });
-      if (user && user.role === 'admin') {
+      if (user && ['admin', 'mechanic', 'sales'].includes(user.role)) {
         const valid = await bcrypt.compare(password, user.password);
         if (valid) {
           const token = jwt.sign(
-            { userId: user._id, name: user.fullname, email: user.email, role: 'admin' },
+            { userId: user._id, name: user.fullname, email: user.email, role: 'admin', staffRole: user.staffRole || 'Admin' },
             JWT_SECRET,
             { expiresIn: '12h' }
           );
           return res.status(200).json({
             status: 'success',
-            message: 'Admin login successful',
+            message: 'Staff login successful',
             token,
             user: {
               name: user.fullname,
               email: user.email,
-              role: 'admin'
+              role: 'admin',
+              staffRole: user.staffRole || 'Admin'
             }
           });
         }
       }
     }
 
+    // Check memoryStore staff accounts
+    const memStaff = memoryStore.staff.find((s) => (s.email || '').toLowerCase() === normalizedEmail);
+    if (memStaff && memStaff.password === password) {
+      const token = jwt.sign(
+        { userId: memStaff._id, name: memStaff.fullname, email: memStaff.email, role: 'admin', staffRole: memStaff.staffRole, isOwner: true },
+        JWT_SECRET,
+        { expiresIn: '12h' }
+      );
+      return res.status(200).json({
+        status: 'success',
+        message: 'Staff login successful',
+        token,
+        user: {
+          name: memStaff.fullname,
+          email: memStaff.email,
+          role: 'admin',
+          staffRole: memStaff.staffRole
+        }
+      });
+    }
+
     return res.status(401).json({
       status: 'failed',
-      message: 'Invalid Admin credentials. Use admin@soapyride.com / Admin@123'
+      message: 'Invalid Staff/Admin email or password.'
     });
   } catch (err) {
     res.status(500).json({ status: 'failed', message: err.message });
@@ -817,6 +870,36 @@ router.put('/vehicles/:id', async (req, res) => {
 router.delete('/vehicles/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    let targetPlate = '';
+
+    if (isDbConnected() && mongoose.Types.ObjectId.isValid(id)) {
+      const vDoc = await Vehicle.findById(id);
+      if (vDoc) targetPlate = (vDoc.vehicleNumber || '').toUpperCase().trim();
+    }
+    if (!targetPlate) {
+      const memV = memoryStore.vehicles.find((v) => String(v._id) === String(id));
+      if (memV) targetPlate = (memV.vehicleNumber || '').toUpperCase().trim();
+    }
+
+    if (targetPlate) {
+      let hasAppointment = memoryStore.appointments.some(
+        (a) => (a.vehicleNumber || '').toUpperCase().trim() === targetPlate && a.status !== 'Rejected' && a.status !== 'Cancelled'
+      );
+      if (isDbConnected()) {
+        const dbApt = await Booking.findOne({
+          vehicleNumber: targetPlate,
+          status: { $nin: ['Rejected', 'Cancelled'] }
+        });
+        if (dbApt) hasAppointment = true;
+      }
+      if (hasAppointment) {
+        return res.status(400).json({
+          status: 'failed',
+          message: `Cannot delete vehicle ${targetPlate} because it has active/scheduled appointments.`
+        });
+      }
+    }
+
     if (isDbConnected() && mongoose.Types.ObjectId.isValid(id)) {
       await Vehicle.findByIdAndDelete(id);
     }
@@ -1301,10 +1384,117 @@ router.delete('/inventory/:id', async (req, res) => {
   try {
     const { id } = req.params;
     if (isDbConnected() && mongoose.Types.ObjectId.isValid(id)) {
+      const part = await InventoryPart.findById(id);
+      if (part && Number(part.quantity) > 0) {
+        return res.status(400).json({
+          status: 'failed',
+          message: `Cannot delete ${part.partCode} because it has ${part.quantity} units in stock. Stock must be 0 before deletion.`
+        });
+      }
       await InventoryPart.findByIdAndDelete(id);
+    } else {
+      const memPart = memoryStore.inventory.find((p) => String(p._id) === String(id));
+      if (memPart && Number(memPart.quantity) > 0) {
+        return res.status(400).json({
+          status: 'failed',
+          message: `Cannot delete ${memPart.partCode} because it has ${memPart.quantity} units in stock. Stock must be 0 before deletion.`
+        });
+      }
     }
     memoryStore.inventory = memoryStore.inventory.filter((p) => String(p._id) !== String(id));
     res.json({ status: 'success', message: 'Spare part deleted' });
+  } catch (err) {
+    res.status(400).json({ status: 'failed', message: err.message });
+  }
+});
+
+// ============================================================================
+// STAFF REGISTRATION & MANAGEMENT (ADMIN, MECHANIC, SALES PERSON)
+// ============================================================================
+router.get('/staff', async (req, res) => {
+  try {
+    if (isDbConnected()) {
+      const dbStaff = await User.find({ role: { $in: ['admin', 'mechanic', 'sales'] } })
+        .select('-password')
+        .sort({ createdAt: -1 });
+      if (dbStaff.length > 0) {
+        return res.json({ status: 'success', data: dbStaff });
+      }
+    }
+    res.json({
+      status: 'success',
+      data: memoryStore.staff.map(({ password, ...rest }) => rest)
+    });
+  } catch (err) {
+    res.json({
+      status: 'success',
+      data: memoryStore.staff.map(({ password, ...rest }) => rest)
+    });
+  }
+});
+
+router.post('/staff', async (req, res) => {
+  try {
+    const { fullname, email, phone, staffRole, password, confirmPassword } = req.body;
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const roleMap = {
+      Admin: 'admin',
+      Mechanic: 'mechanic',
+      'Sales Person': 'sales'
+    };
+    const mappedRole = roleMap[staffRole] || 'admin';
+
+    if (isDbConnected()) {
+      const existing = await User.findOne({ email: normalizedEmail });
+      if (existing) {
+        return res.status(400).json({ status: 'failed', message: 'Email address is already registered.' });
+      }
+      const user = new User({
+        fullname: fullname.trim(),
+        email: normalizedEmail,
+        phone: phone.trim(),
+        role: mappedRole,
+        staffRole: staffRole || 'Admin',
+        password
+      });
+      user.confirmPassword = confirmPassword || password;
+      await user.save();
+
+      const obj = user.toObject();
+      delete obj.password;
+      return res.status(201).json({ status: 'success', data: obj });
+    }
+
+    const existsMem = memoryStore.staff.some((s) => (s.email || '').toLowerCase() === normalizedEmail);
+    if (existsMem) {
+      return res.status(400).json({ status: 'failed', message: 'Email address is already registered.' });
+    }
+    const createdStaff = {
+      _id: 'staff-' + Date.now(),
+      fullname: (fullname || '').trim(),
+      email: normalizedEmail,
+      phone: (phone || '').trim(),
+      role: mappedRole,
+      staffRole: staffRole || 'Admin',
+      password,
+      createdAt: new Date()
+    };
+    memoryStore.staff.unshift(createdStaff);
+    const { password: _p, ...safeStaff } = createdStaff;
+    res.status(201).json({ status: 'success', data: safeStaff });
+  } catch (err) {
+    res.status(400).json({ status: 'failed', message: err.message });
+  }
+});
+
+router.delete('/staff/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (isDbConnected() && mongoose.Types.ObjectId.isValid(id)) {
+      await User.findByIdAndDelete(id);
+    }
+    memoryStore.staff = memoryStore.staff.filter((s) => String(s._id) !== String(id));
+    res.json({ status: 'success', message: 'Staff member removed' });
   } catch (err) {
     res.status(400).json({ status: 'failed', message: err.message });
   }

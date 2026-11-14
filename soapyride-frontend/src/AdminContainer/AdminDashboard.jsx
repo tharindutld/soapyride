@@ -12,6 +12,7 @@ import {
   Inventory2Rounded,
   ReceiptLongRounded,
   InsertChartRounded,
+  BadgeRounded,
   AddCircleRounded,
   EditRounded,
   DeleteOutlineRounded,
@@ -29,8 +30,10 @@ import {
   HistoryRounded,
   StarRounded,
   CloseRounded,
-  RefreshRounded,
-  PlayArrowRounded
+  PlayArrowRounded,
+  ErrorOutlineRounded,
+  PersonAddAlt1Rounded,
+  LockRounded
 } from '@mui/icons-material';
 import {
   FALLBACK_VEHICLES,
@@ -39,7 +42,8 @@ import {
   FALLBACK_APPOINTMENTS,
   FALLBACK_JOB_CARDS,
   FALLBACK_INVENTORY,
-  FALLBACK_INVOICES
+  FALLBACK_INVOICES,
+  FALLBACK_STAFF
 } from './adminDataFallback';
 import useAuth from '../hooks/useAuth';
 
@@ -55,13 +59,17 @@ const PROGRESS_BY_STATUS = {
   Delivered: 100
 };
 
+const PLATE_REGEX = /^[A-Za-z0-9\s-]{4,12}$/;
+const PHONE_REGEX = /^0[0-9]{9}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { refreshAuth } = useAuth();
 
   const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  const [syncing, setSyncing] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
 
   // Core Data States
   const [vehicles, setVehicles] = useState(() => {
@@ -92,6 +100,10 @@ const AdminDashboard = () => {
     const saved = localStorage.getItem('sr_admin_invoices');
     return saved ? JSON.parse(saved) : FALLBACK_INVOICES;
   });
+  const [staffList, setStaffList] = useState(() => {
+    const saved = localStorage.getItem('sr_admin_staff');
+    return saved ? JSON.parse(saved) : FALLBACK_STAFF;
+  });
 
   // Filters
   const [vehicleCategoryFilter, setVehicleCategoryFilter] = useState('All');
@@ -100,6 +112,7 @@ const AdminDashboard = () => {
   const [jobCardFilter, setJobCardFilter] = useState('All');
   const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState('All');
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState('All');
+  const [staffRoleFilter, setStaffRoleFilter] = useState('All');
 
   // Modals State
   const [vehicleModal, setVehicleModal] = useState({ open: false, data: null });
@@ -113,6 +126,12 @@ const AdminDashboard = () => {
   const [invoiceModal, setInvoiceModal] = useState({ open: false, data: null });
   const [paymentModal, setPaymentModal] = useState({ open: false, invoice: null, amount: 0, method: 'Cash' });
   const [printInvoiceModal, setPrintInvoiceModal] = useState({ open: false, invoice: null });
+  const [staffModal, setStaffModal] = useState({ open: false, data: null });
+
+  const clearErrorsAndClose = (setter, closedState) => {
+    setFormErrors({});
+    setter(closedState);
+  };
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('adminToken') || localStorage.getItem('jwtToken');
@@ -141,6 +160,9 @@ const AdminDashboard = () => {
   useEffect(() => {
     localStorage.setItem('sr_admin_invoices', JSON.stringify(invoices));
   }, [invoices]);
+  useEffect(() => {
+    localStorage.setItem('sr_admin_staff', JSON.stringify(staffList));
+  }, [staffList]);
 
   // Check Admin Authentication
   useEffect(() => {
@@ -156,17 +178,17 @@ const AdminDashboard = () => {
     const token = localStorage.getItem('adminToken') || localStorage.getItem('jwtToken');
     if (!token || token === 'offline-admin-session-token') return;
 
-    setSyncing(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [vRes, sRes, aRes, jcRes, mRes, invRes, billRes] = await Promise.all([
+      const [vRes, sRes, aRes, jcRes, mRes, invRes, billRes, stRes] = await Promise.all([
         axios.get(`${API_BASE}/vehicles`, { headers }),
         axios.get(`${API_BASE}/services`, { headers }),
         axios.get(`${API_BASE}/appointments`, { headers }),
         axios.get(`${API_BASE}/jobcards`, { headers }),
         axios.get(`${API_BASE}/mechanics`, { headers }),
         axios.get(`${API_BASE}/inventory`, { headers }),
-        axios.get(`${API_BASE}/invoices`, { headers })
+        axios.get(`${API_BASE}/invoices`, { headers }),
+        axios.get(`${API_BASE}/staff`, { headers }).catch(() => ({ data: null }))
       ]);
 
       if (vRes.data?.data) setVehicles(vRes.data.data);
@@ -176,10 +198,9 @@ const AdminDashboard = () => {
       if (mRes.data?.data) setMechanics(mRes.data.data);
       if (invRes.data?.data) setInventory(invRes.data.data);
       if (billRes.data?.data) setInvoices(billRes.data.data);
+      if (stRes.data?.data) setStaffList(stRes.data.data);
     } catch {
       // Uses local synchronized state if backend is offline
-    } finally {
-      setSyncing(false);
     }
   }, []);
 
@@ -198,29 +219,129 @@ const AdminDashboard = () => {
     navigate('/admin/login');
   };
 
+  // Helper to check if a vehicle has any appointments or active job cards
+  const getVehicleDependencies = (vehicleNumber) => {
+    const plate = (vehicleNumber || '').toUpperCase().trim();
+    const linkedAppointments = appointments.filter(
+      (a) =>
+        (a.vehicleNumber || '').toUpperCase().trim() === plate &&
+        a.status !== 'Rejected' &&
+        a.status !== 'Cancelled'
+    );
+    const linkedJobCards = jobCards.filter(
+      (jc) =>
+        (jc.vehicleNumber || '').toUpperCase().trim() === plate &&
+        jc.status !== 'Delivered'
+    );
+    return {
+      hasDependencies: linkedAppointments.length > 0 || linkedJobCards.length > 0,
+      appointmentCount: linkedAppointments.length,
+      jobCardCount: linkedJobCards.length
+    };
+  };
+
+  const renderFieldError = (key) =>
+    formErrors[key] ? (
+      <div className="pro-error-text">
+        <ErrorOutlineRounded sx={{ fontSize: 14 }} />
+        <span>{formErrors[key]}</span>
+      </div>
+    ) : null;
+
   // ==========================================================================
-  // 4. VEHICLE MANAGEMENT HANDLERS
+  // VEHICLE MANAGEMENT HANDLERS & VALIDATIONS
   // ==========================================================================
   const handleSaveVehicle = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
+    const existing = vehicleModal.data;
+
+    const vehicleNumber = (formData.get('vehicleNumber') || '').toUpperCase().trim();
+    const brand = (formData.get('brand') || '').trim();
+    const model = (formData.get('model') || '').trim();
+    const vehicleType = formData.get('vehicleType') || 'Car';
+    const year = Number(formData.get('year'));
+    const fuelType = formData.get('fuelType') || 'Petrol';
+    const color = (formData.get('color') || '').trim();
+    const mileageRaw = formData.get('mileage');
+    const mileage = Number(mileageRaw);
+    const ownerName = (formData.get('ownerName') || '').trim();
+    const ownerPhone = (formData.get('ownerPhone') || '').trim();
+    const ownerEmail = (formData.get('ownerEmail') || '').trim();
+    const ownerAddress = (formData.get('ownerAddress') || '').trim();
+    const notes = (formData.get('notes') || '').trim();
+
+    const errors = {};
+    const currentYear = new Date().getFullYear();
+
+    if (!vehicleNumber) {
+      errors.vehicleNumber = 'Vehicle registration plate is required';
+    } else if (!PLATE_REGEX.test(vehicleNumber)) {
+      errors.vehicleNumber = 'Enter a valid registration plate (e.g. WP CAB-4582)';
+    } else {
+      const duplicate = vehicles.find(
+        (v) =>
+          (v.vehicleNumber || '').toUpperCase().trim() === vehicleNumber &&
+          v._id !== existing?._id
+      );
+      if (duplicate) {
+        errors.vehicleNumber = `Vehicle plate ${vehicleNumber} is already registered`;
+      }
+      if (existing && existing.vehicleNumber !== vehicleNumber) {
+        const deps = getVehicleDependencies(existing.vehicleNumber);
+        if (deps.hasDependencies) {
+          errors.vehicleNumber = `Cannot change plate number while ${existing.vehicleNumber} has active appointments or job cards`;
+        }
+      }
+    }
+
+    if (!brand || brand.length < 2) {
+      errors.brand = 'Brand / Make must be at least 2 characters (e.g. Toyota)';
+    }
+    if (!model || model.length < 2) {
+      errors.model = 'Vehicle model must be at least 2 characters (e.g. Premio)';
+    }
+    if (!year || year < 1980 || year > currentYear + 1) {
+      errors.year = `Year must be between 1980 and ${currentYear}`;
+    }
+    if (mileageRaw === '' || isNaN(mileage) || mileage < 0) {
+      errors.mileage = 'Enter a valid mileage in km (0 or greater)';
+    } else if (existing && mileage < Number(existing.mileage || 0)) {
+      errors.mileage = `Updated mileage cannot be less than previous recorded mileage (${Number(existing.mileage).toLocaleString()} km)`;
+    }
+    if (!ownerName || ownerName.length < 3) {
+      errors.ownerName = 'Owner full name must be at least 3 characters';
+    }
+    if (!ownerPhone || !PHONE_REGEX.test(ownerPhone)) {
+      errors.ownerPhone = 'Enter a valid 10-digit mobile number starting with 0 (e.g. 0771234567)';
+    }
+    if (ownerEmail && !EMAIL_REGEX.test(ownerEmail)) {
+      errors.ownerEmail = 'Enter a valid email address (e.g. customer@email.com)';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      toast.error('Please fix the validation errors in the Vehicle form.');
+      return;
+    }
+
+    setFormErrors({});
     const payload = {
-      vehicleNumber: formData.get('vehicleNumber').toUpperCase().trim(),
-      brand: formData.get('brand').trim(),
-      model: formData.get('model').trim(),
-      vehicleType: formData.get('vehicleType'),
-      year: Number(formData.get('year')) || 2022,
-      fuelType: formData.get('fuelType'),
-      color: formData.get('color').trim(),
-      mileage: Number(formData.get('mileage')) || 0,
-      ownerName: formData.get('ownerName').trim(),
-      ownerPhone: formData.get('ownerPhone').trim(),
-      ownerEmail: formData.get('ownerEmail').trim(),
-      ownerAddress: formData.get('ownerAddress').trim(),
-      notes: formData.get('notes').trim()
+      vehicleNumber,
+      brand,
+      model,
+      vehicleType,
+      year,
+      fuelType,
+      color: color || 'Silver',
+      mileage,
+      ownerName,
+      ownerPhone,
+      ownerEmail,
+      ownerAddress,
+      notes
     };
 
-    const existing = vehicleModal.data;
     try {
       if (existing?._id) {
         const res = await axios.put(`${API_BASE}/vehicles/${existing._id}`, payload, {
@@ -251,34 +372,85 @@ const AdminDashboard = () => {
     setVehicleModal({ open: false, data: null });
   };
 
-  const handleDeleteVehicle = async (id, plate) => {
-    setVehicles((prev) => prev.filter((v) => v._id !== id));
+  const handleDeleteVehicle = async (vehicle) => {
+    const deps = getVehicleDependencies(vehicle.vehicleNumber);
+    if (deps.hasDependencies) {
+      toast.error(
+        `Cannot delete vehicle ${vehicle.vehicleNumber}! It has ${deps.appointmentCount} appointment(s) and ${deps.jobCardCount} active job card(s).`
+      );
+      return;
+    }
+
+    setVehicles((prev) => prev.filter((v) => v._id !== vehicle._id));
     try {
-      await axios.delete(`${API_BASE}/vehicles/${id}`, { headers: getAuthHeaders() });
+      await axios.delete(`${API_BASE}/vehicles/${vehicle._id}`, { headers: getAuthHeaders() });
     } catch {
       // Removed locally
     }
-    toast.info(`Vehicle ${plate} removed from registry.`);
+    toast.info(`Vehicle ${vehicle.vehicleNumber} removed from registry.`);
   };
 
   // ==========================================================================
-  // 5. SERVICE MANAGEMENT HANDLERS
+  // SERVICE MANAGEMENT HANDLERS & VALIDATIONS
   // ==========================================================================
   const handleSaveService = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
+    const existing = serviceModal.data;
+
+    const serviceCode = (formData.get('serviceCode') || '').toUpperCase().trim();
+    const name = (formData.get('name') || '').trim();
+    const category = formData.get('category') || 'Wash & Detailing';
+    const description = (formData.get('description') || '').trim();
+    const priceRaw = formData.get('price');
+    const price = Number(priceRaw);
+    const duration = (formData.get('duration') || '').trim();
+    const warranty = (formData.get('warranty') || '').trim();
+    const isActive = formData.get('isActive') === 'true';
+
+    const errors = {};
+    if (!serviceCode || !/^[A-Z0-9-]{3,12}$/.test(serviceCode)) {
+      errors.serviceCode = 'Service code must be 3–12 alphanumeric characters (e.g. SRV-001)';
+    } else {
+      const dup = services.find(
+        (s) => (s.serviceCode || '').toUpperCase() === serviceCode && s._id !== existing?._id
+      );
+      if (dup) errors.serviceCode = `Service code ${serviceCode} already exists`;
+    }
+    if (!name || name.length < 4) {
+      errors.name = 'Service title must be at least 4 characters';
+    }
+    if (!description || description.length < 15) {
+      errors.description = 'Description must be at least 15 characters explaining the service';
+    }
+    if (priceRaw === '' || isNaN(price) || price < 100) {
+      errors.price = 'Price must be at least Rs. 100';
+    }
+    if (!duration || duration.length < 3) {
+      errors.duration = 'Specify estimated duration (e.g. 45 mins or 2 hrs)';
+    }
+    if (!warranty || warranty.length < 2) {
+      errors.warranty = 'Specify warranty terms (or N/A)';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      toast.error('Please fix the validation errors in the Service form.');
+      return;
+    }
+
+    setFormErrors({});
     const payload = {
-      serviceCode: formData.get('serviceCode').toUpperCase().trim(),
-      name: formData.get('name').trim(),
-      category: formData.get('category'),
-      description: formData.get('description').trim(),
-      price: Number(formData.get('price')) || 0,
-      duration: formData.get('duration').trim(),
-      warranty: formData.get('warranty').trim(),
-      isActive: formData.get('isActive') === 'true'
+      serviceCode,
+      name,
+      category,
+      description,
+      price,
+      duration,
+      warranty,
+      isActive
     };
 
-    const existing = serviceModal.data;
     try {
       if (existing?._id) {
         const res = await axios.put(`${API_BASE}/services/${existing._id}`, payload, {
@@ -320,20 +492,42 @@ const AdminDashboard = () => {
     toast.info(`Service "${srv.name}" ${updated.isActive ? 'activated' : 'paused'}.`);
   };
 
-  const handleDeleteService = async (id, name) => {
-    setServices((prev) => prev.filter((s) => s._id !== id));
+  const handleDeleteService = async (srv) => {
+    const activeBooked = appointments.some(
+      (a) =>
+        (a.washPackage || '').toLowerCase() === (srv.name || '').toLowerCase() &&
+        !['Completed', 'Rejected', 'Cancelled'].includes(a.status)
+    );
+    if (activeBooked) {
+      toast.error(
+        `Cannot delete service "${srv.name}" because there are active appointments booked for it.`
+      );
+      return;
+    }
+
+    setServices((prev) => prev.filter((s) => s._id !== srv._id));
     try {
-      await axios.delete(`${API_BASE}/services/${id}`, { headers: getAuthHeaders() });
+      await axios.delete(`${API_BASE}/services/${srv._id}`, { headers: getAuthHeaders() });
     } catch {
       // Removed locally
     }
-    toast.info(`Service "${name}" deleted.`);
+    toast.info(`Service "${srv.name}" deleted.`);
   };
 
   // ==========================================================================
-  // 6. APPOINTMENT MANAGEMENT HANDLERS
+  // APPOINTMENT MANAGEMENT HANDLERS & VALIDATIONS
   // ==========================================================================
   const handleAppointmentAction = async (apt, updates, actionLabel) => {
+    if (
+      updates.approvalStatus === 'Rejected' &&
+      ['In Service Bay', 'Quality Check', 'Ready for Pickup', 'Completed'].includes(apt.status)
+    ) {
+      toast.error(
+        `Cannot reject appointment for ${apt.vehicleNumber} because the vehicle is already "${apt.status}".`
+      );
+      return;
+    }
+
     const updatedItem = { ...apt, ...updates };
     setAppointments((prev) => prev.map((a) => (a._id === apt._id ? updatedItem : a)));
     try {
@@ -349,23 +543,74 @@ const AdminDashboard = () => {
   const handleSaveAppointment = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
+    const existing = appointmentModal.data;
+
+    const name = (formData.get('name') || '').trim();
+    const phone = (formData.get('phone') || '').trim();
+    const vehicleNumber = (formData.get('vehicleNumber') || '').toUpperCase().trim();
+    const vehicleType = formData.get('vehicleType') || 'Car';
+    const washPackage = (formData.get('washPackage') || '').trim();
+    const date = formData.get('date') || '';
+    const time = formData.get('time') || '';
+    const estimatedPriceRaw = formData.get('estimatedPrice');
+    const estimatedPrice = Number(estimatedPriceRaw);
+    const assignedMechanic = formData.get('assignedMechanic') || '';
+    const approvalStatus = formData.get('approvalStatus') || 'Approved';
+    const status = formData.get('status') || 'Confirmed';
+    const adminNotes = (formData.get('adminNotes') || '').trim();
+
+    const errors = {};
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    if (!name || name.length < 3) {
+      errors.name = 'Customer name must be at least 3 characters';
+    }
+    if (!phone || !PHONE_REGEX.test(phone)) {
+      errors.phone = 'Enter a valid 10-digit mobile number (e.g. 0771234567)';
+    }
+    if (!vehicleNumber || !PLATE_REGEX.test(vehicleNumber)) {
+      errors.vehicleNumber = 'Enter a valid vehicle plate (e.g. WP CAB-4582)';
+    }
+    if (!washPackage || washPackage.length < 3) {
+      errors.washPackage = 'Service package name is required';
+    }
+    if (!estimatedPriceRaw || isNaN(estimatedPrice) || estimatedPrice <= 0) {
+      errors.estimatedPrice = 'Estimated price must be greater than Rs. 0';
+    }
+    if (!date) {
+      errors.date = 'Appointment date is required';
+    } else if (date < todayStr && !existing) {
+      errors.date = 'Appointment date cannot be in the past';
+    }
+    if (!time) {
+      errors.time = 'Bay time slot is required';
+    } else if (time < '07:30' || time > '19:00') {
+      errors.time = 'Bay time must be within workshop hours (07:30 AM – 07:00 PM)';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      toast.error('Please fix the validation errors in the Appointment form.');
+      return;
+    }
+
+    setFormErrors({});
     const payload = {
-      name: formData.get('name').trim(),
-      phone: formData.get('phone').trim(),
-      vehicleNumber: formData.get('vehicleNumber').toUpperCase().trim(),
-      vehicleType: formData.get('vehicleType'),
-      washPackage: formData.get('washPackage'),
-      date: formData.get('date'),
-      time: formData.get('time'),
-      estimatedPrice: Number(formData.get('estimatedPrice')) || 4500,
-      assignedMechanic: formData.get('assignedMechanic'),
-      approvalStatus: formData.get('approvalStatus') || 'Approved',
-      status: formData.get('status') || 'Confirmed',
-      notes: formData.get('notes') || '',
-      adminNotes: formData.get('adminNotes') || ''
+      name,
+      phone,
+      vehicleNumber,
+      vehicleType,
+      washPackage,
+      date,
+      time,
+      estimatedPrice,
+      assignedMechanic,
+      approvalStatus,
+      status,
+      notes: existing?.notes || '',
+      adminNotes
     };
 
-    const existing = appointmentModal.data;
     try {
       if (existing?._id) {
         const res = await axios.put(`${API_BASE}/appointments/${existing._id}`, payload, {
@@ -374,7 +619,7 @@ const AdminDashboard = () => {
         setAppointments((prev) =>
           prev.map((a) => (a._id === existing._id ? res.data.data || { ...a, ...payload } : a))
         );
-        toast.success('Appointment rescheduled / updated!');
+        toast.success('Appointment updated successfully!');
       } else {
         const res = await axios.post(`${API_BASE}/appointments`, payload, {
           headers: getAuthHeaders()
@@ -387,7 +632,7 @@ const AdminDashboard = () => {
         setAppointments((prev) =>
           prev.map((a) => (a._id === existing._id ? { ...a, ...payload } : a))
         );
-        toast.success('Appointment rescheduled / updated!');
+        toast.success('Appointment updated successfully!');
       } else {
         setAppointments((prev) => [{ _id: 'apt-' + Date.now(), ...payload }, ...prev]);
         toast.success('New service appointment scheduled!');
@@ -397,6 +642,7 @@ const AdminDashboard = () => {
   };
 
   const handleConvertAppointmentToJobCard = (apt) => {
+    setFormErrors({});
     const newJobCardDraft = {
       jobCardNumber: `JC-2026-${Math.floor(100 + Math.random() * 900)}`,
       vehicleNumber: apt.vehicleNumber || 'WP CAB-0000',
@@ -425,16 +671,75 @@ const AdminDashboard = () => {
   };
 
   // ==========================================================================
-  // 7. JOB CARD MANAGEMENT HANDLERS
+  // JOB CARD MANAGEMENT HANDLERS & VALIDATIONS
   // ==========================================================================
   const handleSaveJobCard = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    const status = formData.get('status') || 'In Progress';
-    const progressPercent = PROGRESS_BY_STATUS[status] || 50;
+    const existing = jobCardModal.data;
 
-    // Parse tasks lines
-    const rawTasks = formData.get('tasksText') || '';
+    const jobCardNumber = (formData.get('jobCardNumber') || '').toUpperCase().trim();
+    const vehicleNumber = (formData.get('vehicleNumber') || '').toUpperCase().trim();
+    const vehicleModel = (formData.get('vehicleModel') || '').trim();
+    const customerName = (formData.get('customerName') || '').trim();
+    const customerPhone = (formData.get('customerPhone') || '').trim();
+    const assignedMechanic = formData.get('assignedMechanic') || '';
+    const bayNumber = (formData.get('bayNumber') || '').trim();
+    const priority = formData.get('priority') || 'Normal';
+    const status = formData.get('status') || 'In Progress';
+    const odometerReading = Number(formData.get('odometerReading'));
+    const estimatedCompletion = (formData.get('estimatedCompletion') || '').trim();
+    const reportedIssues = (formData.get('reportedIssues') || '').trim();
+    const rawTasks = (formData.get('tasksText') || '').trim();
+    const laborCostRaw = formData.get('laborCost');
+    const laborCost = Number(laborCostRaw);
+    const technicianNotes = (formData.get('technicianNotes') || '').trim();
+
+    const errors = {};
+    if (!jobCardNumber || !/^JC-[A-Z0-9-]+$/i.test(jobCardNumber)) {
+      errors.jobCardNumber = 'Job Card number must start with JC- (e.g. JC-2026-105)';
+    } else {
+      const dup = jobCards.find(
+        (j) => (j.jobCardNumber || '').toUpperCase() === jobCardNumber && j._id !== existing?._id
+      );
+      if (dup) errors.jobCardNumber = `Job Card ${jobCardNumber} already exists`;
+    }
+    if (!vehicleNumber || !PLATE_REGEX.test(vehicleNumber)) {
+      errors.vehicleNumber = 'Enter a valid vehicle plate (e.g. WP CAB-4582)';
+    }
+    if (!vehicleModel || vehicleModel.length < 2) {
+      errors.vehicleModel = 'Vehicle make & model is required';
+    }
+    if (!customerName || customerName.length < 3) {
+      errors.customerName = 'Customer name must be at least 3 characters';
+    }
+    if (!customerPhone || !PHONE_REGEX.test(customerPhone)) {
+      errors.customerPhone = 'Enter a valid 10-digit mobile number (e.g. 0771234567)';
+    }
+    if (!assignedMechanic) {
+      errors.assignedMechanic = 'Please assign a mechanic';
+    }
+    if (!odometerReading || isNaN(odometerReading) || odometerReading <= 0) {
+      errors.odometerReading = 'Enter a valid positive odometer reading in km';
+    }
+    if (!reportedIssues || reportedIssues.length < 5) {
+      errors.reportedIssues = 'Please enter reported issues or service instructions (min 5 chars)';
+    }
+    if (!rawTasks) {
+      errors.tasksText = 'At least one repair task line is required';
+    }
+    if (laborCostRaw === '' || isNaN(laborCost) || laborCost < 0) {
+      errors.laborCost = 'Labor charge must be 0 or greater';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      toast.error('Please fix the validation errors in the Job Card form.');
+      return;
+    }
+
+    setFormErrors({});
+    const progressPercent = PROGRESS_BY_STATUS[status] || 50;
     const tasks = rawTasks
       .split('\n')
       .map((line) => line.trim())
@@ -444,38 +749,39 @@ const AdminDashboard = () => {
         return {
           description: desc.trim(),
           completed: status === 'Completed' || status === 'Delivered',
-          cost: Number(costStr) || 0
+          cost: Math.max(0, Number(costStr) || 0)
         };
       });
 
-    const laborCost = Number(formData.get('laborCost')) || 0;
     const tasksCost = tasks.reduce((s, t) => s + (t.cost || 0), 0);
-    const existingParts = jobCardModal.data?.partsUsed || [];
+    const existingParts = existing?.partsUsed || [];
     const partsCost = existingParts.reduce((s, p) => s + (p.quantity || 1) * (p.unitPrice || 0), 0);
-    const estimatedTotal = Number(formData.get('estimatedTotal')) || tasksCost + partsCost + laborCost;
+    const estimatedTotal =
+      Number(formData.get('estimatedTotal')) > 0
+        ? Number(formData.get('estimatedTotal'))
+        : tasksCost + partsCost + laborCost;
 
     const payload = {
-      jobCardNumber: formData.get('jobCardNumber').trim(),
-      vehicleNumber: formData.get('vehicleNumber').toUpperCase().trim(),
-      vehicleModel: formData.get('vehicleModel').trim(),
-      customerName: formData.get('customerName').trim(),
-      customerPhone: formData.get('customerPhone').trim(),
-      assignedMechanic: formData.get('assignedMechanic'),
-      bayNumber: formData.get('bayNumber'),
-      priority: formData.get('priority'),
+      jobCardNumber,
+      vehicleNumber,
+      vehicleModel,
+      customerName,
+      customerPhone,
+      assignedMechanic,
+      bayNumber: bayNumber || 'Bay 1 - Mechanical',
+      priority,
       status,
       progressPercent,
-      odometerReading: Number(formData.get('odometerReading')) || 0,
-      estimatedCompletion: formData.get('estimatedCompletion').trim(),
-      reportedIssues: formData.get('reportedIssues').trim(),
+      odometerReading,
+      estimatedCompletion: estimatedCompletion || '04:00 PM',
+      reportedIssues,
       tasks,
       partsUsed: existingParts,
       laborCost,
       estimatedTotal,
-      technicianNotes: formData.get('technicianNotes').trim()
+      technicianNotes
     };
 
-    const existing = jobCardModal.data;
     try {
       if (existing?._id) {
         const res = await axios.put(`${API_BASE}/jobcards/${existing._id}`, payload, {
@@ -544,6 +850,7 @@ const AdminDashboard = () => {
   };
 
   const handleGenerateInvoiceFromJobCard = (jc) => {
+    setFormErrors({});
     const serviceLines = (jc.tasks || []).map((t) => ({
       description: t.description,
       itemType: 'Service',
@@ -598,31 +905,79 @@ const AdminDashboard = () => {
   };
 
   // ==========================================================================
-  // 8. MECHANIC MANAGEMENT HANDLERS
+  // MECHANIC MANAGEMENT HANDLERS & VALIDATIONS
   // ==========================================================================
   const handleSaveMechanic = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
-    const specs = formData
-      .get('specializations')
+    const existing = mechanicModal.data;
+
+    const employeeId = (formData.get('employeeId') || '').toUpperCase().trim();
+    const name = (formData.get('name') || '').trim();
+    const phone = (formData.get('phone') || '').trim();
+    const email = (formData.get('email') || '').trim();
+    const rawSpecs = (formData.get('specializations') || '').trim();
+    const assignedBay = (formData.get('assignedBay') || '').trim();
+    const availability = formData.get('availability') || 'Available';
+    const experienceYears = Number(formData.get('experienceYears'));
+    const hourlyRate = Number(formData.get('hourlyRate'));
+
+    const specs = rawSpecs
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
 
+    const errors = {};
+    if (!employeeId || !/^MEC-[0-9]{3,6}$/i.test(employeeId)) {
+      errors.employeeId = 'Employee ID must follow format MEC-001';
+    } else {
+      const dup = mechanics.find(
+        (m) => (m.employeeId || '').toUpperCase() === employeeId && m._id !== existing?._id
+      );
+      if (dup) errors.employeeId = `Employee ID ${employeeId} already exists`;
+    }
+    if (!name || name.length < 3) {
+      errors.name = 'Mechanic full name must be at least 3 characters';
+    }
+    if (!phone || !PHONE_REGEX.test(phone)) {
+      errors.phone = 'Enter a valid 10-digit mobile number starting with 0 (e.g. 0771234567)';
+    }
+    if (email && !EMAIL_REGEX.test(email)) {
+      errors.email = 'Enter a valid email address';
+    }
+    if (specs.length === 0) {
+      errors.specializations = 'Enter at least one specialization (comma-separated)';
+    }
+    if (!assignedBay || assignedBay.length < 3) {
+      errors.assignedBay = 'Assigned bay is required (e.g. Bay 1 - Mechanical)';
+    }
+    if (isNaN(experienceYears) || experienceYears < 0 || experienceYears > 50) {
+      errors.experienceYears = 'Experience must be between 0 and 50 years';
+    }
+    if (isNaN(hourlyRate) || hourlyRate < 500) {
+      errors.hourlyRate = 'Hourly labor rate must be at least Rs. 500';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      toast.error('Please fix the validation errors in the Mechanic form.');
+      return;
+    }
+
+    setFormErrors({});
     const payload = {
-      employeeId: formData.get('employeeId').toUpperCase().trim(),
-      name: formData.get('name').trim(),
-      phone: formData.get('phone').trim(),
-      email: formData.get('email').trim(),
-      specializations: specs.length ? specs : ['General Mechanical'],
-      experienceYears: Number(formData.get('experienceYears')) || 3,
-      availability: formData.get('availability'),
-      assignedBay: formData.get('assignedBay').trim(),
-      hourlyRate: Number(formData.get('hourlyRate')) || 1500,
-      rating: Number(formData.get('rating')) || 4.8
+      employeeId,
+      name,
+      phone,
+      email,
+      specializations: specs,
+      experienceYears,
+      availability,
+      assignedBay,
+      hourlyRate,
+      rating: existing?.rating || 4.8
     };
 
-    const existing = mechanicModal.data;
     try {
       if (existing?._id) {
         const res = await axios.put(`${API_BASE}/mechanics/${existing._id}`, payload, {
@@ -670,39 +1025,123 @@ const AdminDashboard = () => {
     toast.info(`${mech.name} status set to ${availability}`);
   };
 
-  const handleDeleteMechanic = async (id, name) => {
-    setMechanics((prev) => prev.filter((m) => m._id !== id));
+  const handleDeleteMechanic = async (mech) => {
+    const activeJobs = jobCards.filter(
+      (jc) =>
+        (jc.assignedMechanic || '').toLowerCase() === (mech.name || '').toLowerCase() &&
+        jc.status !== 'Completed' &&
+        jc.status !== 'Delivered'
+    );
+    const activeApts = appointments.filter(
+      (a) =>
+        (a.assignedMechanic || '').toLowerCase() === (mech.name || '').toLowerCase() &&
+        !['Completed', 'Rejected', 'Cancelled'].includes(a.status)
+    );
+
+    if (mech.availability === 'On Job' || activeJobs.length > 0 || activeApts.length > 0) {
+      toast.error(
+        `Cannot delete mechanic ${mech.name} while they have ${activeJobs.length} active job card(s) or ${activeApts.length} scheduled appointment(s).`
+      );
+      return;
+    }
+
+    setMechanics((prev) => prev.filter((m) => m._id !== mech._id));
     try {
-      await axios.delete(`${API_BASE}/mechanics/${id}`, { headers: getAuthHeaders() });
+      await axios.delete(`${API_BASE}/mechanics/${mech._id}`, { headers: getAuthHeaders() });
     } catch {
       // Removed locally
     }
-    toast.info(`Mechanic ${name} removed.`);
+    toast.info(`Mechanic ${mech.name} removed.`);
   };
 
   // ==========================================================================
-  // 9. INVENTORY MANAGEMENT & STOCK MOVEMENT HANDLERS
+  // INVENTORY MANAGEMENT & STOCK MOVEMENT HANDLERS & VALIDATIONS
   // ==========================================================================
   const handleSaveInventoryPart = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
+    const existing = inventoryModal.data;
+
+    const partCode = (formData.get('partCode') || '').toUpperCase().trim();
+    const name = (formData.get('name') || '').trim();
+    const category = formData.get('category') || 'Engine Oil & Fluids';
+    const brand = (formData.get('brand') || '').trim();
+    const quantityRaw = formData.get('quantity');
+    const quantity = Number(quantityRaw);
+    const unit = (formData.get('unit') || '').trim();
+    const reorderLevel = Number(formData.get('reorderLevel'));
+    const costPrice = Number(formData.get('costPrice'));
+    const unitPrice = Number(formData.get('unitPrice'));
+    const supplierName = (formData.get('supplierName') || '').trim();
+    const supplierPhone = (formData.get('supplierPhone') || '').trim();
+    const supplierEmail = (formData.get('supplierEmail') || '').trim();
+    const locationBin = (formData.get('locationBin') || '').trim();
+
+    const errors = {};
+    if (!partCode || !/^[A-Z0-9-]{3,15}$/.test(partCode)) {
+      errors.partCode = 'Part SKU must be 3–15 alphanumeric characters (e.g. PRT-OIL-01)';
+    } else {
+      const dup = inventory.find(
+        (p) => (p.partCode || '').toUpperCase() === partCode && p._id !== existing?._id
+      );
+      if (dup) errors.partCode = `Part SKU ${partCode} already exists in inventory`;
+    }
+    if (!name || name.length < 3) {
+      errors.name = 'Spare part name must be at least 3 characters';
+    }
+    if (!brand || brand.length < 2) {
+      errors.brand = 'Brand / Manufacturer name is required';
+    }
+    if (quantityRaw === '' || isNaN(quantity) || quantity < 0 || !Number.isInteger(quantity)) {
+      errors.quantity = 'Stock quantity must be a whole number (0 or greater)';
+    }
+    if (!unit || unit.length < 2) {
+      errors.unit = 'Unit is required (e.g. Units, Cans, Sets)';
+    }
+    if (isNaN(reorderLevel) || reorderLevel < 1) {
+      errors.reorderLevel = 'Minimum reorder alert level must be at least 1';
+    }
+    if (isNaN(costPrice) || costPrice <= 0) {
+      errors.costPrice = 'Supplier cost price must be greater than Rs. 0';
+    }
+    if (isNaN(unitPrice) || unitPrice <= 0) {
+      errors.unitPrice = 'Customer retail price must be greater than Rs. 0';
+    } else if (unitPrice < costPrice) {
+      errors.unitPrice = `Retail price (Rs. ${unitPrice}) cannot be lower than supplier cost price (Rs. ${costPrice})`;
+    }
+    if (!supplierName || supplierName.length < 3) {
+      errors.supplierName = 'Supplier company name must be at least 3 characters';
+    }
+    if (!supplierPhone || !PHONE_REGEX.test(supplierPhone)) {
+      errors.supplierPhone = 'Enter a valid 10-digit supplier phone number (e.g. 0112345678)';
+    }
+    if (supplierEmail && !EMAIL_REGEX.test(supplierEmail)) {
+      errors.supplierEmail = 'Enter a valid supplier email address';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      toast.error('Please fix the validation errors in the Spare Part form.');
+      return;
+    }
+
+    setFormErrors({});
     const payload = {
-      partCode: formData.get('partCode').toUpperCase().trim(),
-      name: formData.get('name').trim(),
-      category: formData.get('category'),
-      brand: formData.get('brand').trim(),
-      quantity: Number(formData.get('quantity')) || 0,
-      unit: formData.get('unit').trim(),
-      reorderLevel: Number(formData.get('reorderLevel')) || 5,
-      costPrice: Number(formData.get('costPrice')) || 0,
-      unitPrice: Number(formData.get('unitPrice')) || 0,
-      supplierName: formData.get('supplierName').trim(),
-      supplierPhone: formData.get('supplierPhone').trim(),
-      supplierEmail: formData.get('supplierEmail').trim(),
-      locationBin: formData.get('locationBin').trim()
+      partCode,
+      name,
+      category,
+      brand,
+      quantity,
+      unit,
+      reorderLevel,
+      costPrice,
+      unitPrice,
+      supplierName,
+      supplierPhone,
+      supplierEmail,
+      locationBin: locationBin || 'Rack A-01'
     };
 
-    const existing = inventoryModal.data;
     try {
       if (existing?._id) {
         const res = await axios.put(`${API_BASE}/inventory/${existing._id}`, payload, {
@@ -771,16 +1210,34 @@ const AdminDashboard = () => {
 
     const formData = new FormData(e.target);
     const type = formData.get('type');
-    const quantity = Math.abs(Number(formData.get('quantity')) || 0);
-    const reason = formData.get('reason').trim();
-    const reference = formData.get('reference').trim();
-    const performedBy = formData.get('performedBy').trim() || 'Shop Owner';
+    const quantity = Number(formData.get('quantity'));
+    const reason = (formData.get('reason') || '').trim();
+    const reference = (formData.get('reference') || '').trim();
+    const performedBy = (formData.get('performedBy') || '').trim();
 
-    if (type === 'OUT' && part.quantity < quantity) {
-      toast.error(`Insufficient stock! Only ${part.quantity} ${part.unit} available.`);
+    const errors = {};
+    if (!quantity || isNaN(quantity) || quantity < 1 || !Number.isInteger(quantity)) {
+      errors.quantity = 'Movement quantity must be a whole number of at least 1';
+    } else if (type === 'OUT' && quantity > Number(part.quantity)) {
+      errors.quantity = `Cannot issue ${quantity} ${part.unit}. Only ${part.quantity} available in stock.`;
+    }
+    if (!reference || reference.length < 3) {
+      errors.reference = 'Enter a PO Number or Job Card reference (min 3 characters)';
+    }
+    if (!reason || reason.length < 4) {
+      errors.reason = 'Please provide a reason for this stock movement';
+    }
+    if (!performedBy || performedBy.length < 2) {
+      errors.performedBy = 'Specify staff member recording this movement';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      toast.error('Please fix the validation errors in the Stock Movement form.');
       return;
     }
 
+    setFormErrors({});
     const newQty =
       type === 'IN'
         ? part.quantity + quantity
@@ -791,8 +1248,8 @@ const AdminDashboard = () => {
     const movementRecord = {
       type,
       quantity,
-      reason: reason || (type === 'IN' ? 'Supplier Restock' : 'Issued to Workshop Bay'),
-      reference: reference || 'MANUAL',
+      reason,
+      reference,
       date: new Date().toISOString(),
       performedBy
     };
@@ -826,24 +1283,41 @@ const AdminDashboard = () => {
     setStockMovementModal({ open: false, part: null });
   };
 
-  const handleDeleteInventoryPart = async (id, code) => {
-    setInventory((prev) => prev.filter((p) => p._id !== id));
+  const handleDeleteInventoryPart = async (part) => {
+    if (Number(part.quantity) > 0) {
+      toast.error(
+        `Cannot delete "${part.name}" (${part.partCode}) because it still has ${part.quantity} ${part.unit || 'units'} in stock! Stock must be 0 before deleting.`
+      );
+      return;
+    }
+
+    setInventory((prev) => prev.filter((p) => p._id !== part._id));
     try {
-      await axios.delete(`${API_BASE}/inventory/${id}`, { headers: getAuthHeaders() });
+      await axios.delete(`${API_BASE}/inventory/${part._id}`, { headers: getAuthHeaders() });
     } catch {
       // Removed locally
     }
-    toast.info(`Part ${code} removed from inventory.`);
+    toast.info(`Part ${part.partCode} removed from inventory.`);
   };
 
   // ==========================================================================
-  // 10. BILLING & PAYMENTS HANDLERS
+  // BILLING & PAYMENTS HANDLERS & VALIDATIONS
   // ==========================================================================
   const handleSaveInvoice = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
 
-    const rawLines = formData.get('itemsText') || '';
+    const invoiceNumber = (formData.get('invoiceNumber') || '').toUpperCase().trim();
+    const jobCardNumber = (formData.get('jobCardNumber') || '').toUpperCase().trim();
+    const customerName = (formData.get('customerName') || '').trim();
+    const customerPhone = (formData.get('customerPhone') || '').trim();
+    const vehicleNumber = (formData.get('vehicleNumber') || '').toUpperCase().trim();
+    const paymentMethod = formData.get('paymentMethod') || 'Cash';
+    const rawLines = (formData.get('itemsText') || '').trim();
+    const discount = Number(formData.get('discount') || 0);
+    const paidAmount = Number(formData.get('paidAmount') || 0);
+    const notes = (formData.get('notes') || '').trim();
+
     const items = rawLines
       .split('\n')
       .map((l) => l.trim())
@@ -853,7 +1327,7 @@ const AdminDashboard = () => {
         const quantity = Number(qtyStr) || 1;
         const unitPrice = Number(priceStr) || 0;
         return {
-          description: (desc || 'Service Item').trim(),
+          description: (desc || '').trim(),
           itemType: (typeStr || 'Service').trim(),
           quantity,
           unitPrice,
@@ -862,30 +1336,60 @@ const AdminDashboard = () => {
       });
 
     const subtotal = items.reduce((s, i) => s + i.total, 0);
-    const discount = Number(formData.get('discount')) || 0;
-    const tax = Number(formData.get('tax')) || 0;
-    const grandTotal = Math.max(0, subtotal - discount + tax);
-    const paidAmount = Number(formData.get('paidAmount')) || 0;
+    const grandTotal = Math.max(0, subtotal - discount);
+
+    const errors = {};
+    if (!invoiceNumber || !/^INV-[A-Z0-9-]+$/i.test(invoiceNumber)) {
+      errors.invoiceNumber = 'Invoice number must start with INV- (e.g. INV-2026-105)';
+    } else if (invoices.some((i) => (i.invoiceNumber || '').toUpperCase() === invoiceNumber)) {
+      errors.invoiceNumber = `Invoice ${invoiceNumber} already exists`;
+    }
+    if (!customerName || customerName.length < 3) {
+      errors.customerName = 'Customer name must be at least 3 characters';
+    }
+    if (!customerPhone || !PHONE_REGEX.test(customerPhone)) {
+      errors.customerPhone = 'Enter a valid 10-digit customer phone number';
+    }
+    if (!vehicleNumber || !PLATE_REGEX.test(vehicleNumber)) {
+      errors.vehicleNumber = 'Enter a valid vehicle plate (e.g. WP CAB-4582)';
+    }
+    if (items.length === 0 || subtotal <= 0) {
+      errors.itemsText = 'Enter at least one valid billing line item with a positive price';
+    }
+    if (isNaN(discount) || discount < 0 || discount > subtotal) {
+      errors.discount = `Discount must be between Rs. 0 and Subtotal (Rs. ${subtotal.toLocaleString()})`;
+    }
+    if (isNaN(paidAmount) || paidAmount < 0 || paidAmount > grandTotal) {
+      errors.paidAmount = `Paid amount must be between Rs. 0 and Grand Total (Rs. ${grandTotal.toLocaleString()})`;
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      toast.error('Please fix the validation errors in the Invoice form.');
+      return;
+    }
+
+    setFormErrors({});
     const balanceDue = Math.max(0, grandTotal - paidAmount);
     const paymentStatus =
       balanceDue <= 0 ? 'Paid' : paidAmount > 0 ? 'Partial' : 'Unpaid';
 
     const payload = {
-      invoiceNumber: formData.get('invoiceNumber').trim(),
-      jobCardNumber: formData.get('jobCardNumber').trim(),
-      customerName: formData.get('customerName').trim(),
-      customerPhone: formData.get('customerPhone').trim(),
-      vehicleNumber: formData.get('vehicleNumber').toUpperCase().trim(),
+      invoiceNumber,
+      jobCardNumber,
+      customerName,
+      customerPhone,
+      vehicleNumber,
       items,
       subtotal,
       discount,
-      tax,
+      tax: 0,
       grandTotal,
       paidAmount,
       balanceDue,
-      paymentMethod: formData.get('paymentMethod'),
+      paymentMethod,
       paymentStatus,
-      notes: formData.get('notes').trim(),
+      notes,
       issuedDate: new Date().toISOString()
     };
 
@@ -906,7 +1410,16 @@ const AdminDashboard = () => {
     const inv = paymentModal.invoice;
     if (!inv) return;
 
-    const addAmount = Number(paymentModal.amount) || 0;
+    const addAmount = Number(paymentModal.amount);
+    if (isNaN(addAmount) || addAmount <= 0 || addAmount > Number(inv.balanceDue)) {
+      setFormErrors({
+        paymentAmount: `Payment must be between Rs. 1 and Rs. ${Number(inv.balanceDue).toLocaleString()}`
+      });
+      toast.error('Enter a valid payment amount within the balance due.');
+      return;
+    }
+
+    setFormErrors({});
     const newPaid = Math.min(inv.grandTotal, (Number(inv.paidAmount) || 0) + addAmount);
     const newBalance = Math.max(0, inv.grandTotal - newPaid);
     const newStatus = newBalance <= 0 ? 'Paid' : newPaid > 0 ? 'Partial' : 'Unpaid';
@@ -935,7 +1448,139 @@ const AdminDashboard = () => {
   };
 
   // ==========================================================================
-  // COMPUTED METRICS & ANALYTICS (MODULE 11)
+  // STAFF REGISTRATION HANDLERS (ADMIN, MECHANIC, SALES PERSON)
+  // ==========================================================================
+  const handleSaveStaff = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+
+    const fullname = (formData.get('fullname') || '').trim();
+    const staffRole = formData.get('staffRole') || 'Admin';
+    const email = (formData.get('email') || '').trim().toLowerCase();
+    const phone = (formData.get('phone') || '').trim();
+    const password = formData.get('password') || '';
+    const confirmPassword = formData.get('confirmPassword') || '';
+    const specializations = (formData.get('specializations') || '').trim();
+    const assignedBay = (formData.get('assignedBay') || '').trim();
+
+    const errors = {};
+    if (!fullname || fullname.length < 3) {
+      errors.fullname = 'Full name must be at least 3 characters';
+    }
+    if (!['Admin', 'Mechanic', 'Sales Person'].includes(staffRole)) {
+      errors.staffRole = 'Please select a valid role (Admin, Mechanic, or Sales Person)';
+    }
+    if (!email || !EMAIL_REGEX.test(email)) {
+      errors.email = 'Enter a valid staff email address (e.g. name@soapyride.com)';
+    } else if (staffList.some((s) => (s.email || '').toLowerCase() === email)) {
+      errors.email = `Email ${email} is already registered`;
+    }
+    if (!phone || !PHONE_REGEX.test(phone)) {
+      errors.phone = 'Enter a valid 10-digit mobile number starting with 0 (e.g. 0771234567)';
+    }
+    if (!password || password.length < 8) {
+      errors.password = 'Password must be at least 8 characters long';
+    } else if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
+      errors.password = 'Password must contain uppercase, lowercase, and at least one number';
+    }
+    if (confirmPassword !== password) {
+      errors.confirmPassword = 'Passwords do not match';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      toast.error('Please fix the validation errors in the Staff Registration form.');
+      return;
+    }
+
+    setFormErrors({});
+    const payload = {
+      fullname,
+      staffRole,
+      email,
+      phone,
+      password,
+      confirmPassword
+    };
+
+    try {
+      const res = await axios.post(`${API_BASE}/staff`, payload, {
+        headers: getAuthHeaders()
+      });
+      setStaffList((prev) => [
+        { ...(res.data.data || payload), _id: res.data.data?._id || 'staff-' + Date.now(), password, createdAt: new Date().toISOString() },
+        ...prev
+      ]);
+    } catch {
+      setStaffList((prev) => [
+        {
+          _id: 'staff-' + Date.now(),
+          fullname,
+          staffRole,
+          role: staffRole === 'Admin' ? 'admin' : staffRole === 'Mechanic' ? 'mechanic' : 'sales',
+          email,
+          phone,
+          password,
+          createdAt: new Date().toISOString()
+        },
+        ...prev
+      ]);
+    }
+
+    // If registering a Mechanic, also add them to the Workshop Mechanics roster if not present
+    if (staffRole === 'Mechanic' && !mechanics.some((m) => m.name.toLowerCase() === fullname.toLowerCase())) {
+      const newMech = {
+        _id: 'mech-' + Date.now(),
+        employeeId: `MEC-00${mechanics.length + 1}`,
+        name: fullname,
+        phone,
+        email,
+        specializations: specializations
+          ? specializations.split(',').map((s) => s.trim()).filter(Boolean)
+          : ['General Mechanical', 'Diagnostics'],
+        experienceYears: 3,
+        availability: 'Available',
+        assignedBay: assignedBay || `Bay ${mechanics.length + 1}`,
+        completedJobsCount: 0,
+        rating: 4.8,
+        hourlyRate: 1800
+      };
+      setMechanics((prev) => [...prev, newMech]);
+    }
+
+    toast.success(`${staffRole} account for "${fullname}" registered successfully!`);
+    setStaffModal({ open: false, data: null });
+  };
+
+  const handleDeleteStaff = async (member) => {
+    if ((member.email || '').toLowerCase() === 'admin@soapyride.com') {
+      toast.error('Cannot delete the primary Shop Owner account.');
+      return;
+    }
+    if (member.staffRole === 'Mechanic') {
+      const hasActiveJobs = jobCards.some(
+        (jc) =>
+          (jc.assignedMechanic || '').toLowerCase() === (member.fullname || '').toLowerCase() &&
+          jc.status !== 'Completed' &&
+          jc.status !== 'Delivered'
+      );
+      if (hasActiveJobs) {
+        toast.error(`Cannot remove ${member.fullname} while they have active workshop job cards assigned.`);
+        return;
+      }
+    }
+
+    setStaffList((prev) => prev.filter((s) => s._id !== member._id));
+    try {
+      await axios.delete(`${API_BASE}/staff/${member._id}`, { headers: getAuthHeaders() });
+    } catch {
+      // Removed locally
+    }
+    toast.info(`Staff account for ${member.fullname} removed.`);
+  };
+
+  // ==========================================================================
+  // COMPUTED METRICS & ANALYTICS
   // ==========================================================================
   const totalRevenueBilled = invoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
   const totalRevenueCollected = invoices.reduce((s, i) => s + (Number(i.paidAmount) || 0), 0);
@@ -988,23 +1633,24 @@ const AdminDashboard = () => {
     toast.success('Executive CSV Report downloaded!');
   };
 
-  // Sidebar Navigation Items
+  // Sidebar Navigation Items (Clean section names without numbers)
   const navModules = [
     { id: 'overview', label: 'Command Overview', icon: <DashboardRounded fontSize="small" /> },
-    { id: 'vehicles', label: '4. Vehicle Management', icon: <DirectionsCarRounded fontSize="small" />, badge: vehicles.length },
-    { id: 'services', label: '5. Service Management', icon: <BuildCircleRounded fontSize="small" />, badge: services.length },
-    { id: 'appointments', label: '6. Appointments', icon: <EventAvailableRounded fontSize="small" />, badge: appointments.length },
-    { id: 'jobcards', label: '7. Job Card Management', icon: <AssignmentRounded fontSize="small" />, badge: jobCards.length },
-    { id: 'mechanics', label: '8. Mechanic Management', icon: <EngineeringRounded fontSize="small" />, badge: mechanics.length },
+    { id: 'vehicles', label: 'Vehicle Management', icon: <DirectionsCarRounded fontSize="small" />, badge: vehicles.length },
+    { id: 'services', label: 'Service Management', icon: <BuildCircleRounded fontSize="small" />, badge: services.length },
+    { id: 'appointments', label: 'Appointment Management', icon: <EventAvailableRounded fontSize="small" />, badge: appointments.length },
+    { id: 'jobcards', label: 'Job Card Management', icon: <AssignmentRounded fontSize="small" />, badge: jobCards.length },
+    { id: 'mechanics', label: 'Mechanic Management', icon: <EngineeringRounded fontSize="small" />, badge: mechanics.length },
     {
       id: 'inventory',
-      label: '9. Inventory & Parts',
+      label: 'Inventory Management',
       icon: <Inventory2Rounded fontSize="small" />,
       badge: lowStockParts.length > 0 ? `${lowStockParts.length} Low` : inventory.length,
       alert: lowStockParts.length > 0
     },
-    { id: 'billing', label: '10. Billing & Payments', icon: <ReceiptLongRounded fontSize="small" />, badge: invoices.length },
-    { id: 'reports', label: '11. Reports & Analytics', icon: <InsertChartRounded fontSize="small" /> }
+    { id: 'billing', label: 'Billing & Payments', icon: <ReceiptLongRounded fontSize="small" />, badge: invoices.length },
+    { id: 'reports', label: 'Reports & Analytics', icon: <InsertChartRounded fontSize="small" /> },
+    { id: 'staff', label: 'Staff Registration', icon: <BadgeRounded fontSize="small" />, badge: staffList.length }
   ];
 
   // Filtered Lists
@@ -1088,6 +1734,18 @@ const AdminDashboard = () => {
     return matchesStatus && matchesSearch;
   });
 
+  const filteredStaff = staffList.filter((s) => {
+    const matchesRole = staffRoleFilter === 'All' || s.staffRole === staffRoleFilter;
+    const q = searchQuery.toLowerCase();
+    const matchesSearch =
+      !q ||
+      (s.fullname || '').toLowerCase().includes(q) ||
+      (s.email || '').toLowerCase().includes(q) ||
+      (s.phone || '').toLowerCase().includes(q) ||
+      (s.staffRole || '').toLowerCase().includes(q);
+    return matchesRole && matchesSearch;
+  });
+
   return (
     <div className="admin-shell">
       {/* ====================================================================
@@ -1103,7 +1761,7 @@ const AdminDashboard = () => {
               <span style={{ color: '#38bdf8' }}>Soapy</span>Ride
             </div>
             <span style={{ fontSize: '0.65rem', color: '#94a3b8', letterSpacing: '0.15em', fontWeight: 700 }}>
-              OWNER ADMIN ERP
+              ADMIN & WORKSHOP ERP
             </span>
           </div>
         </div>
@@ -1116,6 +1774,7 @@ const AdminDashboard = () => {
               onClick={() => {
                 setActiveTab(mod.id);
                 setSearchQuery('');
+                setFormErrors({});
               }}
               className={`admin-nav-btn ${activeTab === mod.id ? 'active' : ''}`}
             >
@@ -1139,7 +1798,7 @@ const AdminDashboard = () => {
           </Link>
           <button type="button" onClick={handleAdminLogout} className="admin-logout-btn">
             <LogoutRounded sx={{ fontSize: 16 }} />
-            <span>Sign Out Owner</span>
+            <span>Sign Out</span>
           </button>
         </div>
       </aside>
@@ -1155,7 +1814,7 @@ const AdminDashboard = () => {
               {navModules.find((n) => n.id === activeTab)?.label || 'Workshop Command Center'}
             </h1>
             <p className="admin-topbar-sub">
-              Logged in as <strong>{localStorage.getItem('userName') || 'Shop Owner'}</strong> • Live MERN Workshop Suite
+              Logged in as <strong>{localStorage.getItem('userName') || 'Shop Owner'}</strong> • SoapyRide Management Suite
             </p>
           </div>
 
@@ -1174,22 +1833,12 @@ const AdminDashboard = () => {
                 </button>
               )}
             </div>
-
-            <button
-              type="button"
-              onClick={fetchAllAdminData}
-              className="admin-action-chip"
-              title="Sync with MongoDB Server"
-            >
-              <RefreshRounded sx={{ fontSize: 18 }} />
-              <span>{syncing ? 'Syncing...' : 'Sync DB'}</span>
-            </button>
           </div>
         </header>
 
         <div className="admin-content-body">
           {/* ================================================================
-              TAB 0: COMMAND OVERVIEW
+              TAB: COMMAND OVERVIEW
               ================================================================ */}
           {activeTab === 'overview' && (
             <div>
@@ -1242,14 +1891,14 @@ const AdminDashboard = () => {
                 </div>
               </div>
 
-              {/* Quick Module Launcher Grid (Features 4 to 11) */}
+              {/* Quick Module Launcher Grid */}
               <h3 className="admin-section-heading" style={{ marginTop: '2rem', marginBottom: '1rem' }}>
-                Shop Owner Management Modules (4 – 11)
+                Workshop & Store Management Modules
               </h3>
               <div className="admin-module-cards-grid">
                 <div className="admin-module-tile" onClick={() => setActiveTab('vehicles')}>
                   <div className="tile-head">
-                    <span className="tile-num">#4</span>
+                    <span className="tile-num">Registry</span>
                     <DirectionsCarRounded sx={{ color: '#0284c7' }} />
                   </div>
                   <h4>Vehicle Management</h4>
@@ -1259,7 +1908,7 @@ const AdminDashboard = () => {
 
                 <div className="admin-module-tile" onClick={() => setActiveTab('services')}>
                   <div className="tile-head">
-                    <span className="tile-num">#5</span>
+                    <span className="tile-num">Catalog</span>
                     <BuildCircleRounded sx={{ color: '#0284c7' }} />
                   </div>
                   <h4>Service Management</h4>
@@ -1269,7 +1918,7 @@ const AdminDashboard = () => {
 
                 <div className="admin-module-tile" onClick={() => setActiveTab('appointments')}>
                   <div className="tile-head">
-                    <span className="tile-num">#6</span>
+                    <span className="tile-num">Bookings</span>
                     <EventAvailableRounded sx={{ color: '#0284c7' }} />
                   </div>
                   <h4>Appointment Management</h4>
@@ -1279,7 +1928,7 @@ const AdminDashboard = () => {
 
                 <div className="admin-module-tile" onClick={() => setActiveTab('jobcards')}>
                   <div className="tile-head">
-                    <span className="tile-num">#7</span>
+                    <span className="tile-num">Workshop</span>
                     <AssignmentRounded sx={{ color: '#0284c7' }} />
                   </div>
                   <h4>Job Card Management</h4>
@@ -1289,7 +1938,7 @@ const AdminDashboard = () => {
 
                 <div className="admin-module-tile" onClick={() => setActiveTab('mechanics')}>
                   <div className="tile-head">
-                    <span className="tile-num">#8</span>
+                    <span className="tile-num">Technicians</span>
                     <EngineeringRounded sx={{ color: '#0284c7' }} />
                   </div>
                   <h4>Mechanic Management</h4>
@@ -1299,7 +1948,7 @@ const AdminDashboard = () => {
 
                 <div className="admin-module-tile" onClick={() => setActiveTab('inventory')}>
                   <div className="tile-head">
-                    <span className="tile-num">#9</span>
+                    <span className="tile-num">Warehouse</span>
                     <Inventory2Rounded sx={{ color: '#0284c7' }} />
                   </div>
                   <h4>Inventory Management</h4>
@@ -1309,7 +1958,7 @@ const AdminDashboard = () => {
 
                 <div className="admin-module-tile" onClick={() => setActiveTab('billing')}>
                   <div className="tile-head">
-                    <span className="tile-num">#10</span>
+                    <span className="tile-num">Accounts</span>
                     <ReceiptLongRounded sx={{ color: '#0284c7' }} />
                   </div>
                   <h4>Billing & Payments</h4>
@@ -1317,21 +1966,21 @@ const AdminDashboard = () => {
                   <span className="tile-cta">Manage {invoices.length} Invoices &rarr;</span>
                 </div>
 
-                <div className="admin-module-tile" onClick={() => setActiveTab('reports')}>
+                <div className="admin-module-tile" onClick={() => setActiveTab('staff')}>
                   <div className="tile-head">
-                    <span className="tile-num">#11</span>
-                    <InsertChartRounded sx={{ color: '#0284c7' }} />
+                    <span className="tile-num">HR & Access</span>
+                    <BadgeRounded sx={{ color: '#0284c7' }} />
                   </div>
-                  <h4>Reports & Analytics</h4>
-                  <p>Daily/monthly revenue, service reports, inventory valuation, and mechanic performance.</p>
-                  <span className="tile-cta">Open Analytics Suite &rarr;</span>
+                  <h4>Staff Registration</h4>
+                  <p>Register and manage login credentials for Admins, Mechanics, and Sales Persons.</p>
+                  <span className="tile-cta">Manage {staffList.length} Staff Accounts &rarr;</span>
                 </div>
               </div>
             </div>
           )}
 
           {/* ================================================================
-              TAB 4: VEHICLE MANAGEMENT
+              TAB: VEHICLE MANAGEMENT
               ================================================================ */}
           {activeTab === 'vehicles' && (
             <div className="admin-panel-card">
@@ -1351,7 +2000,10 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="btn-primary-pro"
-                  onClick={() => setVehicleModal({ open: true, data: null })}
+                  onClick={() => {
+                    setFormErrors({});
+                    setVehicleModal({ open: true, data: null });
+                  }}
                 >
                   <AddCircleRounded fontSize="small" />
                   <span>Register New Vehicle</span>
@@ -1367,64 +2019,89 @@ const AdminDashboard = () => {
                       <th>Category & Fuel</th>
                       <th>Mileage (km)</th>
                       <th>Owner Details</th>
-                      <th>Service Notes</th>
+                      <th>Booking Status</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredVehicles.map((v) => (
-                      <tr key={v._id}>
-                        <td>
-                          <span className="plate-badge">{v.vehicleNumber}</span>
-                        </td>
-                        <td>
-                          <strong>{v.brand} {v.model}</strong>
-                          <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                            Year: {v.year || 2021} • Color: {v.color || 'Silver'}
-                          </div>
-                        </td>
-                        <td>
-                          <span className="status-chip info">{v.vehicleType}</span>
-                          <span style={{ fontSize: '0.8rem', marginLeft: 6, color: '#475569' }}>
-                            {v.fuelType}
-                          </span>
-                        </td>
-                        <td>
-                          <strong style={{ color: '#0284c7' }}>
-                            {Number(v.mileage || 0).toLocaleString()} km
-                          </strong>
-                        </td>
-                        <td>
-                          <strong>{v.ownerName}</strong>
-                          <div style={{ fontSize: '0.8rem', color: '#475569' }}>
-                            {v.ownerPhone} {v.ownerEmail ? `• ${v.ownerEmail}` : ''}
-                          </div>
-                        </td>
-                        <td style={{ maxWidth: 220, fontSize: '0.82rem', color: '#475569' }}>
-                          {v.notes || '—'}
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <div className="table-action-group">
-                            <button
-                              type="button"
-                              className="icon-btn-sm blue"
-                              title="Edit Vehicle / Update Mileage"
-                              onClick={() => setVehicleModal({ open: true, data: v })}
-                            >
-                              <EditRounded fontSize="small" />
-                            </button>
-                            <button
-                              type="button"
-                              className="icon-btn-sm red"
-                              title="Delete Vehicle"
-                              onClick={() => handleDeleteVehicle(v._id, v.vehicleNumber)}
-                            >
-                              <DeleteOutlineRounded fontSize="small" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredVehicles.map((v) => {
+                      const deps = getVehicleDependencies(v.vehicleNumber);
+                      return (
+                        <tr key={v._id}>
+                          <td>
+                            <span className="plate-badge">{v.vehicleNumber}</span>
+                          </td>
+                          <td>
+                            <strong>{v.brand} {v.model}</strong>
+                            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                              Year: {v.year || 2021} • Color: {v.color || 'Silver'}
+                            </div>
+                          </td>
+                          <td>
+                            <span className="status-chip info">{v.vehicleType}</span>
+                            <span style={{ fontSize: '0.8rem', marginLeft: 6, color: '#475569' }}>
+                              {v.fuelType}
+                            </span>
+                          </td>
+                          <td>
+                            <strong style={{ color: '#0284c7' }}>
+                              {Number(v.mileage || 0).toLocaleString()} km
+                            </strong>
+                          </td>
+                          <td>
+                            <strong>{v.ownerName}</strong>
+                            <div style={{ fontSize: '0.8rem', color: '#475569' }}>
+                              {v.ownerPhone} {v.ownerEmail ? `• ${v.ownerEmail}` : ''}
+                            </div>
+                          </td>
+                          <td>
+                            {deps.hasDependencies ? (
+                              <span
+                                className="status-chip warning"
+                                title="Deletion locked while appointments/jobs exist"
+                              >
+                                <LockRounded sx={{ fontSize: 13, mr: 0.4 }} />
+                                {deps.appointmentCount} Apt / {deps.jobCardCount} Job
+                              </span>
+                            ) : (
+                              <span className="status-chip neutral">No Active Bookings</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <div className="table-action-group">
+                              <button
+                                type="button"
+                                className="icon-btn-sm blue"
+                                title="Edit Vehicle / Update Mileage"
+                                onClick={() => {
+                                  setFormErrors({});
+                                  setVehicleModal({ open: true, data: v });
+                                }}
+                              >
+                                <EditRounded fontSize="small" />
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-btn-sm red"
+                                style={
+                                  deps.hasDependencies
+                                    ? { opacity: 0.45, cursor: 'not-allowed' }
+                                    : undefined
+                                }
+                                title={
+                                  deps.hasDependencies
+                                    ? `Cannot delete ${v.vehicleNumber}: Has active appointments/job cards`
+                                    : 'Delete Vehicle'
+                                }
+                                onClick={() => handleDeleteVehicle(v)}
+                              >
+                                <DeleteOutlineRounded fontSize="small" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {filteredVehicles.length === 0 && (
                       <tr>
                         <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
@@ -1439,7 +2116,7 @@ const AdminDashboard = () => {
           )}
 
           {/* ================================================================
-              TAB 5: SERVICE MANAGEMENT
+              TAB: SERVICE MANAGEMENT
               ================================================================ */}
           {activeTab === 'services' && (
             <div className="admin-panel-card">
@@ -1466,7 +2143,10 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="btn-primary-pro"
-                  onClick={() => setServiceModal({ open: true, data: null })}
+                  onClick={() => {
+                    setFormErrors({});
+                    setServiceModal({ open: true, data: null });
+                  }}
                 >
                   <AddCircleRounded fontSize="small" />
                   <span>Create New Service</span>
@@ -1538,7 +2218,10 @@ const AdminDashboard = () => {
                           <button
                             type="button"
                             className="icon-btn-sm blue"
-                            onClick={() => setServiceModal({ open: true, data: srv })}
+                            onClick={() => {
+                              setFormErrors({});
+                              setServiceModal({ open: true, data: srv });
+                            }}
                             title="Edit Service"
                           >
                             <EditRounded fontSize="small" />
@@ -1546,7 +2229,7 @@ const AdminDashboard = () => {
                           <button
                             type="button"
                             className="icon-btn-sm red"
-                            onClick={() => handleDeleteService(srv._id, srv.name)}
+                            onClick={() => handleDeleteService(srv)}
                             title="Delete Service"
                           >
                             <DeleteOutlineRounded fontSize="small" />
@@ -1561,7 +2244,7 @@ const AdminDashboard = () => {
           )}
 
           {/* ================================================================
-              TAB 6: APPOINTMENT MANAGEMENT
+              TAB: APPOINTMENT MANAGEMENT
               ================================================================ */}
           {activeTab === 'appointments' && (
             <div className="admin-panel-card">
@@ -1581,7 +2264,10 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="btn-primary-pro"
-                  onClick={() => setAppointmentModal({ open: true, data: null, isReschedule: false })}
+                  onClick={() => {
+                    setFormErrors({});
+                    setAppointmentModal({ open: true, data: null, isReschedule: false });
+                  }}
                 >
                   <AddCircleRounded fontSize="small" />
                   <span>New Walk-In Appointment</span>
@@ -1705,9 +2391,10 @@ const AdminDashboard = () => {
                               <button
                                 type="button"
                                 className="mini-action-btn reschedule"
-                                onClick={() =>
-                                  setAppointmentModal({ open: true, data: apt, isReschedule: true })
-                                }
+                                onClick={() => {
+                                  setFormErrors({});
+                                  setAppointmentModal({ open: true, data: apt, isReschedule: true });
+                                }}
                                 title="Reschedule Date/Time or Assign Mechanic"
                               >
                                 <ScheduleRounded sx={{ fontSize: 14 }} />
@@ -1734,7 +2421,7 @@ const AdminDashboard = () => {
           )}
 
           {/* ================================================================
-              TAB 7: JOB CARD MANAGEMENT
+              TAB: JOB CARD MANAGEMENT
               ================================================================ */}
           {activeTab === 'jobcards' && (
             <div className="admin-panel-card">
@@ -1762,7 +2449,10 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="btn-primary-pro"
-                  onClick={() => setJobCardModal({ open: true, data: null })}
+                  onClick={() => {
+                    setFormErrors({});
+                    setJobCardModal({ open: true, data: null });
+                  }}
                 >
                   <AddCircleRounded fontSize="small" />
                   <span>Create Job Card</span>
@@ -1807,7 +2497,10 @@ const AdminDashboard = () => {
                         <button
                           type="button"
                           className="icon-btn-sm blue"
-                          onClick={() => setJobCardModal({ open: true, data: jc })}
+                          onClick={() => {
+                            setFormErrors({});
+                            setJobCardModal({ open: true, data: jc });
+                          }}
                           title="Edit Job Card"
                         >
                           <EditRounded fontSize="small" />
@@ -1900,7 +2593,7 @@ const AdminDashboard = () => {
           )}
 
           {/* ================================================================
-              TAB 8: MECHANIC MANAGEMENT
+              TAB: MECHANIC MANAGEMENT
               ================================================================ */}
           {activeTab === 'mechanics' && (
             <div className="admin-panel-card">
@@ -1916,7 +2609,10 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="btn-primary-pro"
-                  onClick={() => setMechanicModal({ open: true, data: null })}
+                  onClick={() => {
+                    setFormErrors({});
+                    setMechanicModal({ open: true, data: null });
+                  }}
                 >
                   <AddCircleRounded fontSize="small" />
                   <span>Add New Mechanic</span>
@@ -1931,6 +2627,7 @@ const AdminDashboard = () => {
                       jc.status !== 'Completed' &&
                       jc.status !== 'Delivered'
                   );
+                  const isLocked = mech.availability === 'On Job' || activeAssignedJobs.length > 0;
 
                   return (
                     <div key={mech._id} className="mechanic-pro-card">
@@ -2015,7 +2712,10 @@ const AdminDashboard = () => {
                         <button
                           type="button"
                           className="icon-btn-sm blue"
-                          onClick={() => setMechanicModal({ open: true, data: mech })}
+                          onClick={() => {
+                            setFormErrors({});
+                            setMechanicModal({ open: true, data: mech });
+                          }}
                           title="Edit Mechanic"
                         >
                           <EditRounded fontSize="small" />
@@ -2023,8 +2723,13 @@ const AdminDashboard = () => {
                         <button
                           type="button"
                           className="icon-btn-sm red"
-                          onClick={() => handleDeleteMechanic(mech._id, mech.name)}
-                          title="Remove Mechanic"
+                          style={isLocked ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                          onClick={() => handleDeleteMechanic(mech)}
+                          title={
+                            isLocked
+                              ? 'Cannot delete mechanic while On Job or assigned to active Job Cards'
+                              : 'Remove Mechanic'
+                          }
                         >
                           <DeleteOutlineRounded fontSize="small" />
                         </button>
@@ -2037,7 +2742,7 @@ const AdminDashboard = () => {
           )}
 
           {/* ================================================================
-              TAB 9: INVENTORY MANAGEMENT
+              TAB: INVENTORY MANAGEMENT
               ================================================================ */}
           {activeTab === 'inventory' && (
             <div className="admin-panel-card">
@@ -2086,7 +2791,10 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="btn-primary-pro"
-                  onClick={() => setInventoryModal({ open: true, data: null })}
+                  onClick={() => {
+                    setFormErrors({});
+                    setInventoryModal({ open: true, data: null });
+                  }}
                 >
                   <AddCircleRounded fontSize="small" />
                   <span>Add Spare Part</span>
@@ -2109,6 +2817,7 @@ const AdminDashboard = () => {
                   <tbody>
                     {filteredInventory.map((part) => {
                       const isLow = Number(part.quantity) <= Number(part.reorderLevel);
+                      const hasStock = Number(part.quantity) > 0;
                       return (
                         <tr key={part._id}>
                           <td>
@@ -2159,7 +2868,10 @@ const AdminDashboard = () => {
                               <button
                                 type="button"
                                 className="mini-action-btn approve"
-                                onClick={() => setStockMovementModal({ open: true, part })}
+                                onClick={() => {
+                                  setFormErrors({});
+                                  setStockMovementModal({ open: true, part });
+                                }}
                                 title="Record Stock In / Out Movement"
                               >
                                 <SwapVertRounded sx={{ fontSize: 15 }} />
@@ -2176,7 +2888,10 @@ const AdminDashboard = () => {
                               <button
                                 type="button"
                                 className="icon-btn-sm blue"
-                                onClick={() => setInventoryModal({ open: true, data: part })}
+                                onClick={() => {
+                                  setFormErrors({});
+                                  setInventoryModal({ open: true, data: part });
+                                }}
                                 title="Edit Spare Part"
                               >
                                 <EditRounded fontSize="small" />
@@ -2184,8 +2899,13 @@ const AdminDashboard = () => {
                               <button
                                 type="button"
                                 className="icon-btn-sm red"
-                                onClick={() => handleDeleteInventoryPart(part._id, part.partCode)}
-                                title="Delete Part"
+                                style={hasStock ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                                onClick={() => handleDeleteInventoryPart(part)}
+                                title={
+                                  hasStock
+                                    ? `Cannot delete ${part.partCode}: Has ${part.quantity} in stock`
+                                    : 'Delete Part'
+                                }
                               >
                                 <DeleteOutlineRounded fontSize="small" />
                               </button>
@@ -2201,7 +2921,7 @@ const AdminDashboard = () => {
           )}
 
           {/* ================================================================
-              TAB 10: BILLING & PAYMENTS
+              TAB: BILLING & PAYMENTS
               ================================================================ */}
           {activeTab === 'billing' && (
             <div className="admin-panel-card">
@@ -2241,7 +2961,10 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="btn-primary-pro"
-                  onClick={() => setInvoiceModal({ open: true, data: null })}
+                  onClick={() => {
+                    setFormErrors({});
+                    setInvoiceModal({ open: true, data: null });
+                  }}
                 >
                   <AddCircleRounded fontSize="small" />
                   <span>Generate New Invoice</span>
@@ -2322,14 +3045,15 @@ const AdminDashboard = () => {
                               <button
                                 type="button"
                                 className="mini-action-btn approve"
-                                onClick={() =>
+                                onClick={() => {
+                                  setFormErrors({});
                                   setPaymentModal({
                                     open: true,
                                     invoice: inv,
                                     amount: inv.balanceDue,
                                     method: inv.paymentMethod || 'Cash'
-                                  })
-                                }
+                                  });
+                                }}
                               >
                                 <PaidRounded sx={{ fontSize: 14 }} />
                                 <span>Pay Balance</span>
@@ -2354,7 +3078,7 @@ const AdminDashboard = () => {
           )}
 
           {/* ================================================================
-              TAB 11: REPORTS & ANALYTICS
+              TAB: REPORTS & ANALYTICS
               ================================================================ */}
           {activeTab === 'reports' && (
             <div>
@@ -2385,7 +3109,6 @@ const AdminDashboard = () => {
 
               {/* Revenue Charts Grid */}
               <div className="reports-grid-2col">
-                {/* Monthly Revenue Chart */}
                 <div className="admin-panel-card">
                   <h4 style={{ fontSize: '1.05rem', fontWeight: 800, marginBottom: '0.35rem' }}>
                     Monthly Revenue & Service Volume (6-Month Trend)
@@ -2418,7 +3141,6 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
-                {/* Daily Revenue Breakdown */}
                 <div className="admin-panel-card">
                   <h4 style={{ fontSize: '1.05rem', fontWeight: 800, marginBottom: '0.35rem' }}>
                     Daily Revenue & Bay Turnaround (Last 7 Days)
@@ -2454,7 +3176,6 @@ const AdminDashboard = () => {
                 </div>
               </div>
 
-              {/* Mechanic Performance & Inventory Valuation Reports */}
               <div className="reports-grid-2col" style={{ marginTop: '1.5rem' }}>
                 <div className="admin-panel-card">
                   <h4 style={{ fontSize: '1.05rem', fontWeight: 800, marginBottom: '1rem' }}>
@@ -2541,34 +3262,137 @@ const AdminDashboard = () => {
               </div>
             </div>
           )}
+
+          {/* ================================================================
+              TAB: STAFF REGISTRATION (ADMIN, MECHANIC, SALES PERSON)
+              ================================================================ */}
+          {activeTab === 'staff' && (
+            <div className="admin-panel-card">
+              <div className="admin-panel-toolbar">
+                <div>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 800 }}>
+                    Staff Registration & Role Management
+                  </h3>
+                  <p style={{ fontSize: '0.84rem', color: '#64748b' }}>
+                    Register and manage authorized accounts for <strong>Admin</strong>, <strong>Mechanic</strong>, and <strong>Sales Person</strong> roles.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div className="admin-filter-pills">
+                    {['All', 'Admin', 'Mechanic', 'Sales Person'].map((role) => (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => setStaffRoleFilter(role)}
+                        className={`admin-pill-btn ${staffRoleFilter === role ? 'active' : ''}`}
+                      >
+                        {role}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-primary-pro"
+                    onClick={() => {
+                      setFormErrors({});
+                      setStaffModal({ open: true, data: null });
+                    }}
+                  >
+                    <PersonAddAlt1Rounded fontSize="small" />
+                    <span>Register Staff Account</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Staff Member Name</th>
+                      <th>Designated Role</th>
+                      <th>Login Email</th>
+                      <th>Mobile Number</th>
+                      <th>Registered Date</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredStaff.map((member) => {
+                      const isPrimaryOwner = (member.email || '').toLowerCase() === 'admin@soapyride.com';
+                      return (
+                        <tr key={member._id}>
+                          <td>
+                            <strong>{member.fullname}</strong>
+                          </td>
+                          <td>
+                            <span
+                              className={`status-chip ${
+                                member.staffRole === 'Admin'
+                                  ? 'info'
+                                  : member.staffRole === 'Mechanic'
+                                  ? 'warning'
+                                  : 'success'
+                              }`}
+                            >
+                              {member.staffRole || 'Admin'}
+                            </span>
+                          </td>
+                          <td>{member.email}</td>
+                          <td>{member.phone}</td>
+                          <td style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                            {member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Active'}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              className="icon-btn-sm red"
+                              style={isPrimaryOwner ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                              title={isPrimaryOwner ? 'Primary Shop Owner cannot be deleted' : 'Remove Staff Member'}
+                              onClick={() => handleDeleteStaff(member)}
+                            >
+                              <DeleteOutlineRounded fontSize="small" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* ====================================================================
-          MODALS FOR ALL 8 MODULES
+          MODALS WITH PROFESSIONAL VALIDATIONS (noValidate)
           ==================================================================== */}
 
-      {/* 4. Vehicle Modal */}
+      {/* Vehicle Modal */}
       {vehicleModal.open && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card">
             <div className="admin-modal-header">
               <h3>{vehicleModal.data ? 'Edit Vehicle & Mileage' : 'Register New Vehicle'}</h3>
-              <button type="button" onClick={() => setVehicleModal({ open: false, data: null })}>
+              <button
+                type="button"
+                onClick={() => clearErrorsAndClose(setVehicleModal, { open: false, data: null })}
+              >
                 <CloseRounded />
               </button>
             </div>
-            <form onSubmit={handleSaveVehicle}>
+            <form onSubmit={handleSaveVehicle} noValidate>
               <div className="form-grid-2col">
                 <div className="pro-field-group">
                   <label>Vehicle Registration Plate *</label>
                   <input
                     name="vehicleNumber"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.vehicleNumber ? 'input-error' : ''}`}
                     defaultValue={vehicleModal.data?.vehicleNumber || ''}
                     placeholder="e.g. WP CAB-4582"
-                    required
                   />
+                  {renderFieldError('vehicleNumber')}
                 </div>
                 <div className="pro-field-group">
                   <label>Vehicle Category *</label>
@@ -2590,21 +3414,21 @@ const AdminDashboard = () => {
                   <label>Brand / Make *</label>
                   <input
                     name="brand"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.brand ? 'input-error' : ''}`}
                     defaultValue={vehicleModal.data?.brand || ''}
                     placeholder="e.g. Toyota, Honda, BMW"
-                    required
                   />
+                  {renderFieldError('brand')}
                 </div>
                 <div className="pro-field-group">
                   <label>Vehicle Model *</label>
                   <input
                     name="model"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.model ? 'input-error' : ''}`}
                     defaultValue={vehicleModal.data?.model || ''}
                     placeholder="e.g. Premio G Superior"
-                    required
                   />
+                  {renderFieldError('model')}
                 </div>
               </div>
 
@@ -2614,13 +3438,14 @@ const AdminDashboard = () => {
                   <input
                     name="mileage"
                     type="number"
-                    className="pro-input"
-                    defaultValue={vehicleModal.data?.mileage || 25000}
-                    required
+                    className={`pro-input ${formErrors.mileage ? 'input-error' : ''}`}
+                    defaultValue={vehicleModal.data?.mileage ?? ''}
+                    placeholder="e.g. 45000"
                   />
+                  {renderFieldError('mileage')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Fuel Type & Year</label>
+                  <label>Fuel Type & Year *</label>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <select
                       name="fuelType"
@@ -2635,11 +3460,12 @@ const AdminDashboard = () => {
                     <input
                       name="year"
                       type="number"
-                      className="pro-input"
+                      className={`pro-input ${formErrors.year ? 'input-error' : ''}`}
                       defaultValue={vehicleModal.data?.year || 2021}
                       placeholder="Year"
                     />
                   </div>
+                  {renderFieldError('year')}
                 </div>
               </div>
 
@@ -2648,21 +3474,21 @@ const AdminDashboard = () => {
                   <label>Owner Full Name *</label>
                   <input
                     name="ownerName"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.ownerName ? 'input-error' : ''}`}
                     defaultValue={vehicleModal.data?.ownerName || ''}
-                    placeholder="Customer Name"
-                    required
+                    placeholder="Customer Full Name"
                   />
+                  {renderFieldError('ownerName')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Owner Phone Number *</label>
+                  <label>Owner Mobile Number (10 Digits) *</label>
                   <input
                     name="ownerPhone"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.ownerPhone ? 'input-error' : ''}`}
                     defaultValue={vehicleModal.data?.ownerPhone || ''}
                     placeholder="0771234567"
-                    required
                   />
+                  {renderFieldError('ownerPhone')}
                 </div>
               </div>
 
@@ -2672,10 +3498,11 @@ const AdminDashboard = () => {
                   <input
                     name="ownerEmail"
                     type="email"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.ownerEmail ? 'input-error' : ''}`}
                     defaultValue={vehicleModal.data?.ownerEmail || ''}
                     placeholder="customer@email.com"
                   />
+                  {renderFieldError('ownerEmail')}
                 </div>
                 <div className="pro-field-group">
                   <label>Exterior Color</label>
@@ -2712,7 +3539,7 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="admin-cancel-btn"
-                  onClick={() => setVehicleModal({ open: false, data: null })}
+                  onClick={() => clearErrorsAndClose(setVehicleModal, { open: false, data: null })}
                 >
                   Cancel
                 </button>
@@ -2725,26 +3552,29 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 5. Service Modal */}
+      {/* Service Modal */}
       {serviceModal.open && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card">
             <div className="admin-modal-header">
               <h3>{serviceModal.data ? 'Edit Service Package' : 'Create New Service Package'}</h3>
-              <button type="button" onClick={() => setServiceModal({ open: false, data: null })}>
+              <button
+                type="button"
+                onClick={() => clearErrorsAndClose(setServiceModal, { open: false, data: null })}
+              >
                 <CloseRounded />
               </button>
             </div>
-            <form onSubmit={handleSaveService}>
+            <form onSubmit={handleSaveService} noValidate>
               <div className="form-grid-2col">
                 <div className="pro-field-group">
                   <label>Service Code *</label>
                   <input
                     name="serviceCode"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.serviceCode ? 'input-error' : ''}`}
                     defaultValue={serviceModal.data?.serviceCode || `SRV-00${services.length + 1}`}
-                    required
                   />
+                  {renderFieldError('serviceCode')}
                 </div>
                 <div className="pro-field-group">
                   <label>Service Category *</label>
@@ -2767,23 +3597,23 @@ const AdminDashboard = () => {
                 <label>Service / Package Title *</label>
                 <input
                   name="name"
-                  className="pro-input"
+                  className={`pro-input ${formErrors.name ? 'input-error' : ''}`}
                   defaultValue={serviceModal.data?.name || ''}
                   placeholder="e.g. Full Synthetic Lube & Brake Service"
-                  required
                 />
+                {renderFieldError('name')}
               </div>
 
               <div className="pro-field-group">
-                <label>Detailed Description *</label>
+                <label>Detailed Description (Min 15 chars) *</label>
                 <textarea
                   name="description"
                   rows={3}
-                  className="pro-input"
+                  className={`pro-input ${formErrors.description ? 'input-error' : ''}`}
                   defaultValue={serviceModal.data?.description || ''}
                   placeholder="Describe included treatments, parts, and inspections..."
-                  required
                 />
+                {renderFieldError('description')}
               </div>
 
               <div className="form-grid-2col">
@@ -2792,30 +3622,33 @@ const AdminDashboard = () => {
                   <input
                     name="price"
                     type="number"
-                    className="pro-input"
-                    defaultValue={serviceModal.data?.price || 3500}
-                    required
+                    className={`pro-input ${formErrors.price ? 'input-error' : ''}`}
+                    defaultValue={serviceModal.data?.price ?? ''}
+                    placeholder="e.g. 4500"
                   />
+                  {renderFieldError('price')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Estimated Duration</label>
+                  <label>Estimated Duration *</label>
                   <input
                     name="duration"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.duration ? 'input-error' : ''}`}
                     defaultValue={serviceModal.data?.duration || '60 mins'}
                     placeholder="e.g. 90 mins"
                   />
+                  {renderFieldError('duration')}
                 </div>
               </div>
 
               <div className="form-grid-2col">
                 <div className="pro-field-group">
-                  <label>Service Warranty</label>
+                  <label>Service Warranty *</label>
                   <input
                     name="warranty"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.warranty ? 'input-error' : ''}`}
                     defaultValue={serviceModal.data?.warranty || '30 Days Service Warranty'}
                   />
+                  {renderFieldError('warranty')}
                 </div>
                 <div className="pro-field-group">
                   <label>Catalog Visibility</label>
@@ -2834,7 +3667,7 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="admin-cancel-btn"
-                  onClick={() => setServiceModal({ open: false, data: null })}
+                  onClick={() => clearErrorsAndClose(setServiceModal, { open: false, data: null })}
                 >
                   Cancel
                 </button>
@@ -2847,7 +3680,7 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 6. Appointment / Reschedule Modal */}
+      {/* Appointment / Reschedule Modal */}
       {appointmentModal.open && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card">
@@ -2859,30 +3692,34 @@ const AdminDashboard = () => {
               </h3>
               <button
                 type="button"
-                onClick={() => setAppointmentModal({ open: false, data: null, isReschedule: false })}
+                onClick={() =>
+                  clearErrorsAndClose(setAppointmentModal, { open: false, data: null, isReschedule: false })
+                }
               >
                 <CloseRounded />
               </button>
             </div>
-            <form onSubmit={handleSaveAppointment}>
+            <form onSubmit={handleSaveAppointment} noValidate>
               <div className="form-grid-2col">
                 <div className="pro-field-group">
                   <label>Customer Name *</label>
                   <input
                     name="name"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.name ? 'input-error' : ''}`}
                     defaultValue={appointmentModal.data?.name || ''}
-                    required
+                    placeholder="Customer Full Name"
                   />
+                  {renderFieldError('name')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Phone Number *</label>
+                  <label>Phone Number (10 Digits) *</label>
                   <input
                     name="phone"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.phone ? 'input-error' : ''}`}
                     defaultValue={appointmentModal.data?.phone || ''}
-                    required
+                    placeholder="0771234567"
                   />
+                  {renderFieldError('phone')}
                 </div>
               </div>
 
@@ -2891,11 +3728,11 @@ const AdminDashboard = () => {
                   <label>Vehicle Number Plate *</label>
                   <input
                     name="vehicleNumber"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.vehicleNumber ? 'input-error' : ''}`}
                     defaultValue={appointmentModal.data?.vehicleNumber || ''}
                     placeholder="WP CAB-4582"
-                    required
                   />
+                  {renderFieldError('vehicleNumber')}
                 </div>
                 <div className="pro-field-group">
                   <label>Vehicle Type</label>
@@ -2917,19 +3754,20 @@ const AdminDashboard = () => {
                   <label>Service Package *</label>
                   <input
                     name="washPackage"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.washPackage ? 'input-error' : ''}`}
                     defaultValue={appointmentModal.data?.washPackage || 'Signature Detailing & Carnauba Wax Spa'}
-                    required
                   />
+                  {renderFieldError('washPackage')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Estimated Price (Rs.)</label>
+                  <label>Estimated Price (Rs.) *</label>
                   <input
                     name="estimatedPrice"
                     type="number"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.estimatedPrice ? 'input-error' : ''}`}
                     defaultValue={appointmentModal.data?.estimatedPrice || 4500}
                   />
+                  {renderFieldError('estimatedPrice')}
                 </div>
               </div>
 
@@ -2939,24 +3777,24 @@ const AdminDashboard = () => {
                   <input
                     name="date"
                     type="date"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.date ? 'input-error' : ''}`}
                     defaultValue={
                       appointmentModal.data?.date
                         ? new Date(appointmentModal.data.date).toISOString().split('T')[0]
                         : new Date().toISOString().split('T')[0]
                     }
-                    required
                   />
+                  {renderFieldError('date')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Bay Time Slot *</label>
+                  <label>Bay Time Slot (07:30 – 19:00) *</label>
                   <input
                     name="time"
                     type="time"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.time ? 'input-error' : ''}`}
                     defaultValue={appointmentModal.data?.time || '10:00'}
-                    required
                   />
+                  {renderFieldError('time')}
                 </div>
               </div>
 
@@ -3026,7 +3864,9 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="admin-cancel-btn"
-                  onClick={() => setAppointmentModal({ open: false, data: null, isReschedule: false })}
+                  onClick={() =>
+                    clearErrorsAndClose(setAppointmentModal, { open: false, data: null, isReschedule: false })
+                  }
                 >
                   Cancel
                 </button>
@@ -3039,59 +3879,64 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 7. Job Card Modal */}
+      {/* Job Card Modal */}
       {jobCardModal.open && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card">
             <div className="admin-modal-header">
               <h3>{jobCardModal.data?._id ? 'Update Job Card & Progress' : 'Create Workshop Job Card'}</h3>
-              <button type="button" onClick={() => setJobCardModal({ open: false, data: null })}>
+              <button
+                type="button"
+                onClick={() => clearErrorsAndClose(setJobCardModal, { open: false, data: null })}
+              >
                 <CloseRounded />
               </button>
             </div>
-            <form onSubmit={handleSaveJobCard}>
+            <form onSubmit={handleSaveJobCard} noValidate>
               <div className="form-grid-2col">
                 <div className="pro-field-group">
                   <label>Job Card Number *</label>
                   <input
                     name="jobCardNumber"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.jobCardNumber ? 'input-error' : ''}`}
                     defaultValue={
                       jobCardModal.data?.jobCardNumber || `JC-2026-${Math.floor(100 + Math.random() * 900)}`
                     }
-                    required
                   />
+                  {renderFieldError('jobCardNumber')}
                 </div>
                 <div className="pro-field-group">
                   <label>Vehicle Number Plate *</label>
                   <input
                     name="vehicleNumber"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.vehicleNumber ? 'input-error' : ''}`}
                     defaultValue={jobCardModal.data?.vehicleNumber || ''}
                     placeholder="WP CAB-4582"
-                    required
                   />
+                  {renderFieldError('vehicleNumber')}
                 </div>
               </div>
 
               <div className="form-grid-2col">
                 <div className="pro-field-group">
-                  <label>Vehicle Make & Model</label>
+                  <label>Vehicle Make & Model *</label>
                   <input
                     name="vehicleModel"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.vehicleModel ? 'input-error' : ''}`}
                     defaultValue={jobCardModal.data?.vehicleModel || ''}
                     placeholder="e.g. Toyota Premio"
                   />
+                  {renderFieldError('vehicleModel')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Odometer Reading (km)</label>
+                  <label>Odometer Reading (km) *</label>
                   <input
                     name="odometerReading"
                     type="number"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.odometerReading ? 'input-error' : ''}`}
                     defaultValue={jobCardModal.data?.odometerReading || 55000}
                   />
+                  {renderFieldError('odometerReading')}
                 </div>
               </div>
 
@@ -3100,19 +3945,20 @@ const AdminDashboard = () => {
                   <label>Customer Name *</label>
                   <input
                     name="customerName"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.customerName ? 'input-error' : ''}`}
                     defaultValue={jobCardModal.data?.customerName || ''}
-                    required
                   />
+                  {renderFieldError('customerName')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Customer Phone *</label>
+                  <label>Customer Phone (10 Digits) *</label>
                   <input
                     name="customerPhone"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.customerPhone ? 'input-error' : ''}`}
                     defaultValue={jobCardModal.data?.customerPhone || ''}
-                    required
+                    placeholder="0771234567"
                   />
+                  {renderFieldError('customerPhone')}
                 </div>
               </div>
 
@@ -3180,21 +4026,22 @@ const AdminDashboard = () => {
               </div>
 
               <div className="pro-field-group">
-                <label>Reported Issues / Customer Instructions</label>
+                <label>Reported Issues / Customer Instructions *</label>
                 <input
                   name="reportedIssues"
-                  className="pro-input"
+                  className={`pro-input ${formErrors.reportedIssues ? 'input-error' : ''}`}
                   defaultValue={jobCardModal.data?.reportedIssues || ''}
                   placeholder="Describe symptoms or requested service..."
                 />
+                {renderFieldError('reportedIssues')}
               </div>
 
               <div className="pro-field-group">
-                <label>Repair Tasks (One per line: Task Description | Cost in Rs.)</label>
+                <label>Repair Tasks (One per line: Task Description | Cost in Rs.) *</label>
                 <textarea
                   name="tasksText"
                   rows={3}
-                  className="pro-input"
+                  className={`pro-input ${formErrors.tasksText ? 'input-error' : ''}`}
                   defaultValue={
                     (jobCardModal.data?.tasks || [])
                       .map((t) => `${t.description} | ${t.cost || 0}`)
@@ -3202,17 +4049,19 @@ const AdminDashboard = () => {
                     'Full Synthetic Oil & Filter Service | 8500\nBrake Pad Inspection & Cleaning | 2500'
                   }
                 />
+                {renderFieldError('tasksText')}
               </div>
 
               <div className="form-grid-2col">
                 <div className="pro-field-group">
-                  <label>Technician Labor Charge (Rs.)</label>
+                  <label>Technician Labor Charge (Rs.) *</label>
                   <input
                     name="laborCost"
                     type="number"
-                    className="pro-input"
-                    defaultValue={jobCardModal.data?.laborCost || 2500}
+                    className={`pro-input ${formErrors.laborCost ? 'input-error' : ''}`}
+                    defaultValue={jobCardModal.data?.laborCost ?? 2500}
                   />
+                  {renderFieldError('laborCost')}
                 </div>
                 <div className="pro-field-group">
                   <label>Total Estimated Cost (Rs.)</label>
@@ -3239,7 +4088,7 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="admin-cancel-btn"
-                  onClick={() => setJobCardModal({ open: false, data: null })}
+                  onClick={() => clearErrorsAndClose(setJobCardModal, { open: false, data: null })}
                 >
                   Cancel
                 </button>
@@ -3252,59 +4101,63 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 8. Mechanic Modal */}
+      {/* Mechanic Modal */}
       {mechanicModal.open && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card">
             <div className="admin-modal-header">
               <h3>{mechanicModal.data ? 'Edit Mechanic Profile' : 'Register Workshop Mechanic'}</h3>
-              <button type="button" onClick={() => setMechanicModal({ open: false, data: null })}>
+              <button
+                type="button"
+                onClick={() => clearErrorsAndClose(setMechanicModal, { open: false, data: null })}
+              >
                 <CloseRounded />
               </button>
             </div>
-            <form onSubmit={handleSaveMechanic}>
+            <form onSubmit={handleSaveMechanic} noValidate>
               <div className="form-grid-2col">
                 <div className="pro-field-group">
-                  <label>Employee ID *</label>
+                  <label>Employee ID (Format: MEC-001) *</label>
                   <input
                     name="employeeId"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.employeeId ? 'input-error' : ''}`}
                     defaultValue={mechanicModal.data?.employeeId || `MEC-00${mechanics.length + 1}`}
-                    required
                   />
+                  {renderFieldError('employeeId')}
                 </div>
                 <div className="pro-field-group">
                   <label>Full Name *</label>
                   <input
                     name="name"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.name ? 'input-error' : ''}`}
                     defaultValue={mechanicModal.data?.name || ''}
                     placeholder="e.g. Kasun Bandara"
-                    required
                   />
+                  {renderFieldError('name')}
                 </div>
               </div>
 
               <div className="form-grid-2col">
                 <div className="pro-field-group">
-                  <label>Mobile Phone *</label>
+                  <label>Mobile Phone (10 Digits) *</label>
                   <input
                     name="phone"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.phone ? 'input-error' : ''}`}
                     defaultValue={mechanicModal.data?.phone || ''}
                     placeholder="0771234567"
-                    required
                   />
+                  {renderFieldError('phone')}
                 </div>
                 <div className="pro-field-group">
                   <label>Email Address</label>
                   <input
                     name="email"
                     type="email"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.email ? 'input-error' : ''}`}
                     defaultValue={mechanicModal.data?.email || ''}
                     placeholder="mechanic@soapyride.com"
                   />
+                  {renderFieldError('email')}
                 </div>
               </div>
 
@@ -3312,23 +4165,24 @@ const AdminDashboard = () => {
                 <label>Technical Specializations (Comma-separated) *</label>
                 <input
                   name="specializations"
-                  className="pro-input"
+                  className={`pro-input ${formErrors.specializations ? 'input-error' : ''}`}
                   defaultValue={
                     (mechanicModal.data?.specializations || []).join(', ') ||
                     'Engine & Transmission, OBD-II Diagnostics, Hybrid Systems'
                   }
-                  required
                 />
+                {renderFieldError('specializations')}
               </div>
 
               <div className="form-grid-2col">
                 <div className="pro-field-group">
-                  <label>Assigned Service Bay</label>
+                  <label>Assigned Service Bay *</label>
                   <input
                     name="assignedBay"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.assignedBay ? 'input-error' : ''}`}
                     defaultValue={mechanicModal.data?.assignedBay || 'Bay 1 - Mechanical'}
                   />
+                  {renderFieldError('assignedBay')}
                 </div>
                 <div className="pro-field-group">
                   <label>Availability Status</label>
@@ -3347,22 +4201,24 @@ const AdminDashboard = () => {
 
               <div className="form-grid-2col">
                 <div className="pro-field-group">
-                  <label>Experience (Years)</label>
+                  <label>Experience (Years) *</label>
                   <input
                     name="experienceYears"
                     type="number"
-                    className="pro-input"
-                    defaultValue={mechanicModal.data?.experienceYears || 5}
+                    className={`pro-input ${formErrors.experienceYears ? 'input-error' : ''}`}
+                    defaultValue={mechanicModal.data?.experienceYears ?? 5}
                   />
+                  {renderFieldError('experienceYears')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Hourly Labor Rate (Rs.)</label>
+                  <label>Hourly Labor Rate (Rs.) *</label>
                   <input
                     name="hourlyRate"
                     type="number"
-                    className="pro-input"
-                    defaultValue={mechanicModal.data?.hourlyRate || 1800}
+                    className={`pro-input ${formErrors.hourlyRate ? 'input-error' : ''}`}
+                    defaultValue={mechanicModal.data?.hourlyRate ?? 1800}
                   />
+                  {renderFieldError('hourlyRate')}
                 </div>
               </div>
 
@@ -3370,7 +4226,7 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="admin-cancel-btn"
-                  onClick={() => setMechanicModal({ open: false, data: null })}
+                  onClick={() => clearErrorsAndClose(setMechanicModal, { open: false, data: null })}
                 >
                   Cancel
                 </button>
@@ -3383,26 +4239,29 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 9A. Inventory Add/Edit Modal */}
+      {/* Inventory Add/Edit Modal */}
       {inventoryModal.open && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card">
             <div className="admin-modal-header">
               <h3>{inventoryModal.data ? 'Edit Spare Part & Supplier' : 'Register New Spare Part'}</h3>
-              <button type="button" onClick={() => setInventoryModal({ open: false, data: null })}>
+              <button
+                type="button"
+                onClick={() => clearErrorsAndClose(setInventoryModal, { open: false, data: null })}
+              >
                 <CloseRounded />
               </button>
             </div>
-            <form onSubmit={handleSaveInventoryPart}>
+            <form onSubmit={handleSaveInventoryPart} noValidate>
               <div className="form-grid-2col">
                 <div className="pro-field-group">
                   <label>Part SKU / Code *</label>
                   <input
                     name="partCode"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.partCode ? 'input-error' : ''}`}
                     defaultValue={inventoryModal.data?.partCode || `PRT-00${inventory.length + 1}`}
-                    required
                   />
+                  {renderFieldError('partCode')}
                 </div>
                 <div className="pro-field-group">
                   <label>Category *</label>
@@ -3426,51 +4285,53 @@ const AdminDashboard = () => {
                   <label>Spare Part Name *</label>
                   <input
                     name="name"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.name ? 'input-error' : ''}`}
                     defaultValue={inventoryModal.data?.name || ''}
                     placeholder="e.g. Mobil 1 5W-30 Synthetic (4L)"
-                    required
                   />
+                  {renderFieldError('name')}
                 </div>
                 <div className="pro-field-group">
                   <label>Manufacturer / Brand *</label>
                   <input
                     name="brand"
-                    className="pro-input"
-                    defaultValue={inventoryModal.data?.brand || 'OEM Genuine'}
-                    required
+                    className={`pro-input ${formErrors.brand ? 'input-error' : ''}`}
+                    defaultValue={inventoryModal.data?.brand || ''}
+                    placeholder="e.g. Mobil 1, Toyota OEM"
                   />
+                  {renderFieldError('brand')}
                 </div>
               </div>
 
               <div className="form-grid-2col">
                 <div className="pro-field-group">
-                  <label>Current Stock Quantity *</label>
+                  <label>Current Stock Quantity & Unit *</label>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <input
                       name="quantity"
                       type="number"
-                      className="pro-input"
-                      defaultValue={inventoryModal.data?.quantity ?? 15}
-                      required
+                      className={`pro-input ${formErrors.quantity ? 'input-error' : ''}`}
+                      defaultValue={inventoryModal.data?.quantity ?? 0}
                     />
                     <input
                       name="unit"
-                      className="pro-input"
+                      className={`pro-input ${formErrors.unit ? 'input-error' : ''}`}
                       defaultValue={inventoryModal.data?.unit || 'Units'}
                       placeholder="Units/Cans"
                     />
                   </div>
+                  {renderFieldError('quantity')}
+                  {renderFieldError('unit')}
                 </div>
                 <div className="pro-field-group">
                   <label>Min Reorder Alert Level *</label>
                   <input
                     name="reorderLevel"
                     type="number"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.reorderLevel ? 'input-error' : ''}`}
                     defaultValue={inventoryModal.data?.reorderLevel ?? 5}
-                    required
                   />
+                  {renderFieldError('reorderLevel')}
                 </div>
               </div>
 
@@ -3480,20 +4341,22 @@ const AdminDashboard = () => {
                   <input
                     name="costPrice"
                     type="number"
-                    className="pro-input"
-                    defaultValue={inventoryModal.data?.costPrice || 5000}
-                    required
+                    className={`pro-input ${formErrors.costPrice ? 'input-error' : ''}`}
+                    defaultValue={inventoryModal.data?.costPrice ?? ''}
+                    placeholder="e.g. 5000"
                   />
+                  {renderFieldError('costPrice')}
                 </div>
                 <div className="pro-field-group">
                   <label>Customer Retail Price (Rs.) *</label>
                   <input
                     name="unitPrice"
                     type="number"
-                    className="pro-input"
-                    defaultValue={inventoryModal.data?.unitPrice || 6800}
-                    required
+                    className={`pro-input ${formErrors.unitPrice ? 'input-error' : ''}`}
+                    defaultValue={inventoryModal.data?.unitPrice ?? ''}
+                    placeholder="Must be >= Cost Price"
                   />
+                  {renderFieldError('unitPrice')}
                 </div>
               </div>
 
@@ -3502,18 +4365,21 @@ const AdminDashboard = () => {
                   <label>Supplier Company Name *</label>
                   <input
                     name="supplierName"
-                    className="pro-input"
-                    defaultValue={inventoryModal.data?.supplierName || 'AutoLanka Distributors'}
-                    required
+                    className={`pro-input ${formErrors.supplierName ? 'input-error' : ''}`}
+                    defaultValue={inventoryModal.data?.supplierName || ''}
+                    placeholder="e.g. AutoLanka Distributors"
                   />
+                  {renderFieldError('supplierName')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Supplier Phone</label>
+                  <label>Supplier Phone (10 Digits) *</label>
                   <input
                     name="supplierPhone"
-                    className="pro-input"
-                    defaultValue={inventoryModal.data?.supplierPhone || '0112345678'}
+                    className={`pro-input ${formErrors.supplierPhone ? 'input-error' : ''}`}
+                    defaultValue={inventoryModal.data?.supplierPhone || ''}
+                    placeholder="0112345678"
                   />
+                  {renderFieldError('supplierPhone')}
                 </div>
               </div>
 
@@ -3522,9 +4388,11 @@ const AdminDashboard = () => {
                   <label>Supplier Email</label>
                   <input
                     name="supplierEmail"
-                    className="pro-input"
-                    defaultValue={inventoryModal.data?.supplierEmail || 'orders@autolanka.lk'}
+                    className={`pro-input ${formErrors.supplierEmail ? 'input-error' : ''}`}
+                    defaultValue={inventoryModal.data?.supplierEmail || ''}
+                    placeholder="orders@supplier.lk"
                   />
+                  {renderFieldError('supplierEmail')}
                 </div>
                 <div className="pro-field-group">
                   <label>Storage Bin Location</label>
@@ -3540,7 +4408,7 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="admin-cancel-btn"
-                  onClick={() => setInventoryModal({ open: false, data: null })}
+                  onClick={() => clearErrorsAndClose(setInventoryModal, { open: false, data: null })}
                 >
                   Cancel
                 </button>
@@ -3553,7 +4421,7 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 9B. Stock Movement (Stock IN / Stock OUT) Modal */}
+      {/* Stock Movement (Stock IN / Stock OUT) Modal */}
       {stockMovementModal.open && stockMovementModal.part && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card" style={{ maxWidth: 500 }}>
@@ -3561,7 +4429,7 @@ const AdminDashboard = () => {
               <h3>Record Stock Movement — {stockMovementModal.part.partCode}</h3>
               <button
                 type="button"
-                onClick={() => setStockMovementModal({ open: false, part: null })}
+                onClick={() => clearErrorsAndClose(setStockMovementModal, { open: false, part: null })}
               >
                 <CloseRounded />
               </button>
@@ -3572,7 +4440,7 @@ const AdminDashboard = () => {
                 {stockMovementModal.part.quantity} {stockMovementModal.part.unit}
               </strong>
             </p>
-            <form onSubmit={handleRecordStockMovement}>
+            <form onSubmit={handleRecordStockMovement} noValidate>
               <div className="form-grid-2col">
                 <div className="pro-field-group">
                   <label>Movement Direction *</label>
@@ -3586,42 +4454,48 @@ const AdminDashboard = () => {
                   <input
                     name="quantity"
                     type="number"
-                    min="1"
-                    className="pro-input"
-                    defaultValue={5}
-                    required
+                    className={`pro-input ${formErrors.quantity ? 'input-error' : ''}`}
+                    defaultValue={1}
                   />
+                  {renderFieldError('quantity')}
                 </div>
               </div>
 
               <div className="pro-field-group">
-                <label>Reference (PO Number or Job Card Number)</label>
+                <label>Reference (PO Number or Job Card Number) *</label>
                 <input
                   name="reference"
-                  className="pro-input"
+                  className={`pro-input ${formErrors.reference ? 'input-error' : ''}`}
                   placeholder="e.g. PO-2026-105 or JC-2026-101"
                 />
+                {renderFieldError('reference')}
               </div>
 
               <div className="pro-field-group">
-                <label>Reason / Notes</label>
+                <label>Reason / Notes *</label>
                 <input
                   name="reason"
-                  className="pro-input"
+                  className={`pro-input ${formErrors.reason ? 'input-error' : ''}`}
                   placeholder="e.g. Supplier delivery or Used for brake replacement"
                 />
+                {renderFieldError('reason')}
               </div>
 
               <div className="pro-field-group">
-                <label>Recorded By</label>
-                <input name="performedBy" className="pro-input" defaultValue="Shop Owner / Admin" />
+                <label>Recorded By *</label>
+                <input
+                  name="performedBy"
+                  className={`pro-input ${formErrors.performedBy ? 'input-error' : ''}`}
+                  defaultValue={localStorage.getItem('userName') || 'Shop Admin'}
+                />
+                {renderFieldError('performedBy')}
               </div>
 
               <div className="admin-modal-footer">
                 <button
                   type="button"
                   className="admin-cancel-btn"
-                  onClick={() => setStockMovementModal({ open: false, part: null })}
+                  onClick={() => clearErrorsAndClose(setStockMovementModal, { open: false, part: null })}
                 >
                   Cancel
                 </button>
@@ -3634,7 +4508,7 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 9C. Stock Movement History Modal */}
+      {/* Stock Movement History Modal */}
       {movementHistoryModal.open && movementHistoryModal.part && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card">
@@ -3693,29 +4567,32 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 10A. Generate Invoice Modal */}
+      {/* Generate Invoice Modal */}
       {invoiceModal.open && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card">
             <div className="admin-modal-header">
               <h3>Generate Customer Invoice & Payment Record</h3>
-              <button type="button" onClick={() => setInvoiceModal({ open: false, data: null })}>
+              <button
+                type="button"
+                onClick={() => clearErrorsAndClose(setInvoiceModal, { open: false, data: null })}
+              >
                 <CloseRounded />
               </button>
             </div>
-            <form onSubmit={handleSaveInvoice}>
+            <form onSubmit={handleSaveInvoice} noValidate>
               <div className="form-grid-2col">
                 <div className="pro-field-group">
                   <label>Invoice Number *</label>
                   <input
                     name="invoiceNumber"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.invoiceNumber ? 'input-error' : ''}`}
                     defaultValue={
                       invoiceModal.data?.invoiceNumber ||
                       `INV-2026-${Math.floor(100 + Math.random() * 900)}`
                     }
-                    required
                   />
+                  {renderFieldError('invoiceNumber')}
                 </div>
                 <div className="pro-field-group">
                   <label>Linked Job Card #</label>
@@ -3733,19 +4610,20 @@ const AdminDashboard = () => {
                   <label>Customer Name *</label>
                   <input
                     name="customerName"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.customerName ? 'input-error' : ''}`}
                     defaultValue={invoiceModal.data?.customerName || ''}
-                    required
                   />
+                  {renderFieldError('customerName')}
                 </div>
                 <div className="pro-field-group">
-                  <label>Customer Phone *</label>
+                  <label>Customer Phone (10 Digits) *</label>
                   <input
                     name="customerPhone"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.customerPhone ? 'input-error' : ''}`}
                     defaultValue={invoiceModal.data?.customerPhone || ''}
-                    required
+                    placeholder="0771234567"
                   />
+                  {renderFieldError('customerPhone')}
                 </div>
               </div>
 
@@ -3754,11 +4632,11 @@ const AdminDashboard = () => {
                   <label>Vehicle Number Plate *</label>
                   <input
                     name="vehicleNumber"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.vehicleNumber ? 'input-error' : ''}`}
                     defaultValue={invoiceModal.data?.vehicleNumber || ''}
                     placeholder="WP CAB-4582"
-                    required
                   />
+                  {renderFieldError('vehicleNumber')}
                 </div>
                 <div className="pro-field-group">
                   <label>Payment Method</label>
@@ -3776,11 +4654,11 @@ const AdminDashboard = () => {
               </div>
 
               <div className="pro-field-group">
-                <label>Invoice Line Items (Format: Description | Qty | Unit Price | Type)</label>
+                <label>Invoice Line Items (Format: Description | Qty | Unit Price | Type) *</label>
                 <textarea
                   name="itemsText"
                   rows={4}
-                  className="pro-input"
+                  className={`pro-input ${formErrors.itemsText ? 'input-error' : ''}`}
                   defaultValue={
                     invoiceModal.data?.items
                       ? invoiceModal.data.items
@@ -3788,8 +4666,8 @@ const AdminDashboard = () => {
                           .join('\n')
                       : 'Full Mechanical & Lube Service | 1 | 11500 | Service\nMobil 1 Synthetic Oil Filter | 1 | 2800 | Part'
                   }
-                  required
                 />
+                {renderFieldError('itemsText')}
               </div>
 
               <div className="form-grid-2col">
@@ -3798,18 +4676,20 @@ const AdminDashboard = () => {
                   <input
                     name="discount"
                     type="number"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.discount ? 'input-error' : ''}`}
                     defaultValue={invoiceModal.data?.discount || 0}
                   />
+                  {renderFieldError('discount')}
                 </div>
                 <div className="pro-field-group">
                   <label>Amount Paid Now (Rs.)</label>
                   <input
                     name="paidAmount"
                     type="number"
-                    className="pro-input"
+                    className={`pro-input ${formErrors.paidAmount ? 'input-error' : ''}`}
                     defaultValue={invoiceModal.data?.paidAmount ?? invoiceModal.data?.grandTotal ?? 0}
                   />
+                  {renderFieldError('paidAmount')}
                 </div>
               </div>
 
@@ -3827,7 +4707,7 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="admin-cancel-btn"
-                  onClick={() => setInvoiceModal({ open: false, data: null })}
+                  onClick={() => clearErrorsAndClose(setInvoiceModal, { open: false, data: null })}
                 >
                   Cancel
                 </button>
@@ -3840,7 +4720,7 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 10B. Record Outstanding Balance Payment Modal */}
+      {/* Record Outstanding Balance Payment Modal */}
       {paymentModal.open && paymentModal.invoice && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card" style={{ maxWidth: 460 }}>
@@ -3848,7 +4728,9 @@ const AdminDashboard = () => {
               <h3>Collect Payment — {paymentModal.invoice.invoiceNumber}</h3>
               <button
                 type="button"
-                onClick={() => setPaymentModal({ open: false, invoice: null, amount: 0, method: 'Cash' })}
+                onClick={() =>
+                  clearErrorsAndClose(setPaymentModal, { open: false, invoice: null, amount: 0, method: 'Cash' })
+                }
               >
                 <CloseRounded />
               </button>
@@ -3861,18 +4743,16 @@ const AdminDashboard = () => {
                 Rs. {Number(paymentModal.invoice.balanceDue).toLocaleString()}
               </strong>
             </p>
-            <form onSubmit={handleRecordPaymentSubmit}>
+            <form onSubmit={handleRecordPaymentSubmit} noValidate>
               <div className="pro-field-group">
                 <label>Payment Amount Received (Rs.) *</label>
                 <input
                   type="number"
-                  className="pro-input"
+                  className={`pro-input ${formErrors.paymentAmount ? 'input-error' : ''}`}
                   value={paymentModal.amount}
                   onChange={(e) => setPaymentModal({ ...paymentModal, amount: e.target.value })}
-                  max={paymentModal.invoice.balanceDue}
-                  min={1}
-                  required
                 />
+                {renderFieldError('paymentAmount')}
               </div>
               <div className="pro-field-group">
                 <label>Payment Method</label>
@@ -3891,7 +4771,9 @@ const AdminDashboard = () => {
                 <button
                   type="button"
                   className="admin-cancel-btn"
-                  onClick={() => setPaymentModal({ open: false, invoice: null, amount: 0, method: 'Cash' })}
+                  onClick={() =>
+                    clearErrorsAndClose(setPaymentModal, { open: false, invoice: null, amount: 0, method: 'Cash' })
+                  }
                 >
                   Cancel
                 </button>
@@ -3904,7 +4786,7 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* 10C. Printable Invoice Receipt Modal */}
+      {/* Printable Invoice Receipt Modal */}
       {printInvoiceModal.open && printInvoiceModal.invoice && (
         <div className="admin-modal-backdrop">
           <div className="admin-modal-card" style={{ maxWidth: 640 }}>
@@ -4014,6 +4896,122 @@ const AdminDashboard = () => {
                 <span>Print Receipt</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Staff Registration Modal (Admin, Mechanic, Sales Person) */}
+      {staffModal.open && (
+        <div className="admin-modal-backdrop">
+          <div className="admin-modal-card">
+            <div className="admin-modal-header">
+              <h3>Register Staff Account (Admin, Mechanic, or Sales Person)</h3>
+              <button
+                type="button"
+                onClick={() => clearErrorsAndClose(setStaffModal, { open: false, data: null })}
+              >
+                <CloseRounded />
+              </button>
+            </div>
+            <form onSubmit={handleSaveStaff} noValidate>
+              <div className="form-grid-2col">
+                <div className="pro-field-group">
+                  <label>Full Name *</label>
+                  <input
+                    name="fullname"
+                    className={`pro-input ${formErrors.fullname ? 'input-error' : ''}`}
+                    placeholder="e.g. Dilshan Perera"
+                  />
+                  {renderFieldError('fullname')}
+                </div>
+                <div className="pro-field-group">
+                  <label>Account Role *</label>
+                  <select name="staffRole" className="pro-input" defaultValue="Admin">
+                    <option value="Admin">Admin</option>
+                    <option value="Mechanic">Mechanic</option>
+                    <option value="Sales Person">Sales Person</option>
+                  </select>
+                  {renderFieldError('staffRole')}
+                </div>
+              </div>
+
+              <div className="form-grid-2col">
+                <div className="pro-field-group">
+                  <label>Staff Login Email *</label>
+                  <input
+                    name="email"
+                    type="email"
+                    className={`pro-input ${formErrors.email ? 'input-error' : ''}`}
+                    placeholder="staff@soapyride.com"
+                  />
+                  {renderFieldError('email')}
+                </div>
+                <div className="pro-field-group">
+                  <label>Mobile Phone (10 Digits) *</label>
+                  <input
+                    name="phone"
+                    className={`pro-input ${formErrors.phone ? 'input-error' : ''}`}
+                    placeholder="0771234567"
+                  />
+                  {renderFieldError('phone')}
+                </div>
+              </div>
+
+              <div className="form-grid-2col">
+                <div className="pro-field-group">
+                  <label>Password (8+ chars, Upper, Lower, Number) *</label>
+                  <input
+                    name="password"
+                    type="password"
+                    className={`pro-input ${formErrors.password ? 'input-error' : ''}`}
+                    placeholder="Enter strong password"
+                  />
+                  {renderFieldError('password')}
+                </div>
+                <div className="pro-field-group">
+                  <label>Confirm Password *</label>
+                  <input
+                    name="confirmPassword"
+                    type="password"
+                    className={`pro-input ${formErrors.confirmPassword ? 'input-error' : ''}`}
+                    placeholder="Re-enter password"
+                  />
+                  {renderFieldError('confirmPassword')}
+                </div>
+              </div>
+
+              <div className="form-grid-2col">
+                <div className="pro-field-group">
+                  <label>Specializations (If Mechanic)</label>
+                  <input
+                    name="specializations"
+                    className="pro-input"
+                    placeholder="e.g. Engine, Brakes, Diagnostics"
+                  />
+                </div>
+                <div className="pro-field-group">
+                  <label>Assigned Bay (If Mechanic)</label>
+                  <input
+                    name="assignedBay"
+                    className="pro-input"
+                    placeholder="e.g. Bay 2 - Alignment"
+                  />
+                </div>
+              </div>
+
+              <div className="admin-modal-footer">
+                <button
+                  type="button"
+                  className="admin-cancel-btn"
+                  onClick={() => clearErrorsAndClose(setStaffModal, { open: false, data: null })}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn-primary-pro">
+                  Register Staff Member
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -9,8 +9,13 @@ const UserSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['user', 'admin'],
+        enum: ['user', 'admin', 'mechanic', 'sales'],
         default: 'user'
+    },
+    staffRole: {
+        type: String,
+        enum: ['Customer', 'Admin', 'Mechanic', 'Sales Person'],
+        default: 'Customer'
     },
     email: {
         type: String,

@@ -48,10 +48,14 @@ const authenticate = async (req, res, next) => {
 
 const authorize = (role) => {
   return (req, res, next) => {
-    if (req.user && req.user.role === role) {
+    const allowedAdminRoles = ['admin', 'mechanic', 'sales'];
+    if (
+      req.user &&
+      (req.user.role === role || (role === 'admin' && allowedAdminRoles.includes(req.user.role)))
+    ) {
       next();
     } else {
-      res.status(403).json({ message: 'Access denied: Admin privileges required' });
+      res.status(403).json({ message: 'Access denied: Staff/Admin privileges required' });
     }
   };
 };

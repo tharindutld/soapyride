@@ -536,3 +536,33 @@ export const FALLBACK_INVOICES = [
     issuedDate: new Date().toISOString()
   }
 ];
+
+export const FALLBACK_STAFF = [
+  {
+    _id: 'staff-101',
+    fullname: 'Tharindu Dissanayake',
+    email: 'admin@soapyride.com',
+    phone: '0771122334',
+    role: 'admin',
+    staffRole: 'Admin',
+    createdAt: '2026-09-15T08:00:00.000Z'
+  },
+  {
+    _id: 'staff-102',
+    fullname: 'Nuwan Bandara',
+    email: 'nuwan.b@soapyride.com',
+    phone: '0774512369',
+    role: 'mechanic',
+    staffRole: 'Mechanic',
+    createdAt: '2026-10-01T08:00:00.000Z'
+  },
+  {
+    _id: 'staff-103',
+    fullname: 'Dilshan Perera',
+    email: 'dilshan.sales@soapyride.com',
+    phone: '0714455667',
+    role: 'sales',
+    staffRole: 'Sales Person',
+    createdAt: '2026-10-20T08:00:00.000Z'
+  }
+];

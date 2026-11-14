@@ -10,14 +10,13 @@ import {
   LogoutRounded,
   MenuRounded,
   CloseRounded,
-  AdminPanelSettingsRounded,
 } from '@mui/icons-material';
 import LoginButton from './LoginButton';
 import BookingButton from '../BookingContainer/BookingButton';
 import useAuth from '../hooks/useAuth';
 
 const Navbar = () => {
-  const { isLoggedIn, userName, userRole, refreshAuth } = useAuth();
+  const { isLoggedIn, userName, refreshAuth } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -91,16 +90,6 @@ const Navbar = () => {
 
         <div className={`nav-actions-group ${mobileOpen ? 'open' : ''}`}>
           <BookingButton onClick={() => setMobileOpen(false)} />
-
-          <Link
-            to={userRole === 'admin' ? '/admin/dashboard' : '/admin/login'}
-            onClick={() => setMobileOpen(false)}
-            className="admin-portal-nav-btn"
-            title="Shop Owner & Admin Login"
-          >
-            <AdminPanelSettingsRounded sx={{ fontSize: 17 }} />
-            <span>{userRole === 'admin' ? 'Admin Panel' : 'Admin Login'}</span>
-          </Link>
 
           {isLoggedIn ? (
             <>

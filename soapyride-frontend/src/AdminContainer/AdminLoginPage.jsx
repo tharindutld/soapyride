@@ -8,82 +8,106 @@ import {
   LockRounded,
   Visibility,
   VisibilityOff,
-  VerifiedUserRounded,
   LoginRounded,
-  AutoFixHighRounded,
   ArrowBackRounded,
-  SecurityRounded
+  SecurityRounded,
+  ErrorOutlineRounded
 } from '@mui/icons-material';
 import useAuth from '../hooks/useAuth';
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
 const AdminLoginPage = () => {
-  const [email, setEmail] = useState('admin@soapyride.com');
-  const [password, setPassword] = useState('Admin@123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [touched, setTouched] = useState({});
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
   const { refreshAuth } = useAuth();
 
-  const handleQuickFill = () => {
-    setEmail('admin@soapyride.com');
-    setPassword('Admin@123');
-    setError('');
-    toast.info('Owner credentials filled!');
+  const validateField = (name, val) => {
+    if (name === 'email') {
+      if (!val || !val.trim()) return 'Staff / Admin email address is required';
+      if (!EMAIL_REGEX.test(val.trim())) return 'Please enter a valid email address (e.g. name@soapyride.com)';
+      return '';
+    }
+    if (name === 'password') {
+      if (!val) return 'Password is required';
+      if (val.length < 6) return 'Password must be at least 6 characters';
+      return '';
+    }
+    return '';
+  };
+
+  const handleBlur = (field, val) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    setFieldErrors((prev) => ({ ...prev, [field]: validateField(field, val) }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    if (!email.trim() || !password) {
-      setError('Please enter both Admin Email and Password.');
+    const emailErr = validateField('email', email);
+    const passErr = validateField('password', password);
+    setFieldErrors({ email: emailErr, password: passErr });
+    setTouched({ email: true, password: true });
+
+    if (emailErr || passErr) {
+      toast.error('Please fix the highlighted errors before signing in.');
       return;
     }
 
     setLoading(true);
+    const normalized = email.trim().toLowerCase();
+
     try {
       const res = await axios.post('http://localhost:5000/admin/login', {
-        email: email.trim().toLowerCase(),
+        email: normalized,
         password
       });
 
       const { token, user } = res.data;
       localStorage.setItem('adminToken', token);
       localStorage.setItem('jwtToken', token);
-      localStorage.setItem('userName', user.name || 'Shop Owner');
+      localStorage.setItem('userName', user.name || 'Staff Member');
       localStorage.setItem('userRole', 'admin');
       localStorage.setItem('adminUser', JSON.stringify(user));
 
       if (refreshAuth) refreshAuth();
-      toast.success('Admin Command Center unlocked!');
+      toast.success(`Welcome back, ${user.name}!`);
       navigate('/admin/dashboard');
     } catch (err) {
-      const normalized = email.trim().toLowerCase();
+      // Check locally registered staff accounts as fallback if backend is offline
+      const localStaff = JSON.parse(localStorage.getItem('sr_admin_staff') || '[]');
+      const matchedLocalStaff = localStaff.find(
+        (s) => s.email?.toLowerCase() === normalized && s.password === password
+      );
       const isBuiltInOwner =
         (normalized === 'admin@soapyride.com' && password === 'Admin@123') ||
         (normalized === 'owner@soapyride.com' && password === 'Owner@123');
 
-      if (!err.response && isBuiltInOwner) {
-        // Offline fallback when backend server is not yet started
-        const offlineUser = {
-          name: 'Tharindu Dissanayake (Shop Owner)',
-          email: normalized,
-          role: 'admin'
-        };
+      if (!err.response && (isBuiltInOwner || matchedLocalStaff)) {
+        const activeUser = matchedLocalStaff
+          ? { name: matchedLocalStaff.fullname, email: matchedLocalStaff.email, role: 'admin', staffRole: matchedLocalStaff.staffRole }
+          : { name: 'Shop Owner', email: normalized, role: 'admin', staffRole: 'Admin' };
+
         localStorage.setItem('adminToken', 'offline-admin-session-token');
         localStorage.setItem('jwtToken', 'offline-admin-session-token');
-        localStorage.setItem('userName', offlineUser.name);
+        localStorage.setItem('userName', activeUser.name);
         localStorage.setItem('userRole', 'admin');
-        localStorage.setItem('adminUser', JSON.stringify(offlineUser));
+        localStorage.setItem('adminUser', JSON.stringify(activeUser));
         if (refreshAuth) refreshAuth();
-        toast.success('Signed in to Admin Panel (Local Sync Mode)');
+        toast.success(`Signed in as ${activeUser.name}`);
         navigate('/admin/dashboard');
       } else {
         const msg =
           err.response?.data?.message ||
-          'Invalid Admin/Owner credentials. Use admin@soapyride.com / Admin@123';
+          'Invalid email or password. Please verify your staff credentials.';
         setError(msg);
         toast.error(msg);
       }
@@ -100,47 +124,27 @@ const AdminLoginPage = () => {
           <div>
             <div className="admin-shield-pill">
               <SecurityRounded sx={{ fontSize: 16 }} />
-              <span>RESTRICTED ACCESS • SHOP OWNER & ADMIN</span>
+              <span>RESTRICTED ACCESS • AUTHORIZED PERSONNEL ONLY</span>
             </div>
             <h1 className="admin-showcase-title">
               SoapyRide <span style={{ color: '#38bdf8' }}>ERP & Workshop</span> Command Center
             </h1>
             <p className="admin-showcase-desc">
-              Centralized management suite for vehicle registry, service bays, mechanic dispatch,
-              job cards, spare parts inventory, invoicing, and real-time financial analytics.
+              Dedicated management portal for authorized Shop Admins, Mechanics, and Sales Staff
+              to manage workshop operations, vehicle service records, spare parts inventory,
+              billing, and performance analytics.
             </p>
-
-            <div className="admin-module-badges">
-              <span>4. Vehicle Registry</span>
-              <span>5. Service Catalog</span>
-              <span>6. Bay Appointments</span>
-              <span>7. Job Cards</span>
-              <span>8. Mechanic Dispatch</span>
-              <span>9. Parts Inventory</span>
-              <span>10. Billing & POS</span>
-              <span>11. Revenue Analytics</span>
-            </div>
           </div>
 
-          <div className="admin-credentials-hint-box">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-              <strong style={{ color: '#38bdf8', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <VerifiedUserRounded sx={{ fontSize: 17 }} />
-                Default Shop Owner Login
-              </strong>
-              <button
-                type="button"
-                onClick={handleQuickFill}
-                className="admin-autofill-btn"
-              >
-                <AutoFixHighRounded sx={{ fontSize: 14 }} />
-                <span>Auto-Fill</span>
-              </button>
-            </div>
-            <div style={{ fontSize: '0.82rem', color: '#cbd5e1', display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
-              <span>Email: <strong>admin@soapyride.com</strong></span>
-              <span>Password: <strong>Admin@123</strong></span>
-            </div>
+          <div
+            style={{
+              paddingTop: '1.25rem',
+              borderTop: '1px solid rgba(255,255,255,0.12)',
+              fontSize: '0.82rem',
+              color: '#94a3b8'
+            }}
+          >
+            Protected by role-based access control. New staff accounts (Admin, Mechanic, or Sales Person) can be registered inside the Staff Management portal by an Administrator.
           </div>
         </div>
 
@@ -151,10 +155,10 @@ const AdminLoginPage = () => {
               <AdminPanelSettingsRounded sx={{ fontSize: 32 }} />
             </div>
             <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>
-              Admin & Owner Sign In
+              Staff & Admin Sign In
             </h2>
             <p style={{ fontSize: '0.88rem', color: '#64748b', marginTop: '4px' }}>
-              Authenticate with your shop owner credentials to access the workshop dashboard
+              Enter your authorized credentials to access the workshop dashboard
             </p>
           </div>
 
@@ -168,34 +172,53 @@ const AdminLoginPage = () => {
             <div className="pro-field-group">
               <label htmlFor="admin-email">
                 <EmailRounded sx={{ fontSize: 17, color: '#0284c7' }} />
-                <span>Owner / Admin Email</span>
+                <span>Staff / Admin Email</span>
               </label>
               <input
                 id="admin-email"
                 type="email"
-                className="pro-input"
+                className={`pro-input ${fieldErrors.email && touched.email ? 'input-error' : ''}`}
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@soapyride.com"
-                required
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (touched.email) {
+                    setFieldErrors((prev) => ({ ...prev, email: validateField('email', e.target.value) }));
+                  }
+                }}
+                onBlur={(e) => handleBlur('email', e.target.value)}
+                placeholder="Enter your work email"
               />
+              {fieldErrors.email && touched.email && (
+                <div className="pro-error-text">
+                  <ErrorOutlineRounded sx={{ fontSize: 15 }} />
+                  <span>{fieldErrors.email}</span>
+                </div>
+              )}
             </div>
 
             <div className="pro-field-group">
               <label htmlFor="admin-password">
                 <LockRounded sx={{ fontSize: 17, color: '#0284c7' }} />
-                <span>Security Password</span>
+                <span>Password</span>
               </label>
               <div style={{ position: 'relative' }}>
                 <input
                   id="admin-password"
                   type={showPassword ? 'text' : 'password'}
-                  className="pro-input"
+                  className={`pro-input ${fieldErrors.password && touched.password ? 'input-error' : ''}`}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter admin password"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (touched.password) {
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        password: validateField('password', e.target.value)
+                      }));
+                    }
+                  }}
+                  onBlur={(e) => handleBlur('password', e.target.value)}
+                  placeholder="Enter your password"
                   style={{ paddingRight: '2.75rem' }}
-                  required
                 />
                 <button
                   type="button"
@@ -214,6 +237,12 @@ const AdminLoginPage = () => {
                   {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
                 </button>
               </div>
+              {fieldErrors.password && touched.password && (
+                <div className="pro-error-text">
+                  <ErrorOutlineRounded sx={{ fontSize: 15 }} />
+                  <span>{fieldErrors.password}</span>
+                </div>
+              )}
             </div>
 
             <button
@@ -223,7 +252,7 @@ const AdminLoginPage = () => {
               style={{ width: '100%', padding: '0.95rem', marginTop: '0.5rem' }}
             >
               <LoginRounded fontSize="small" />
-              <span>{loading ? 'Verifying Owner Access...' : 'Unlock Admin Command Center'}</span>
+              <span>{loading ? 'Authenticating...' : 'Sign In to Workshop Portal'}</span>
             </button>
           </form>
 
