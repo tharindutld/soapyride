@@ -1,0 +1,13 @@
+{
+  "name": "soapyride-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SoapyRide Auto Service & Detailing Center - MERN Stack",
+  "scripts": {
+    "dev": "npm --prefix soapyride-frontend start",
+    "start": "npm --prefix soapyride-frontend start",
+    "frontend": "npm --prefix soapyride-frontend start",
+    "backend": "npm --prefix soapyride-backend run dev",
+    "build": "npm --prefix soapyride-frontend run build"
+  }
+}
