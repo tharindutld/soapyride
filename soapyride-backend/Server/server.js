@@ -7,6 +7,7 @@ const register = require('./routes/register.route');
 const login = require('./routes/login.route');
 const postmessagesroute = require('./routes/postmessages.route');
 const bookingusroute = require('./routes/bookingus.route');
+const adminRoute = require('./routes/admin.route');
 
 require('dotenv').config();
 connectDB(process.env.MONGODB_URL);
@@ -23,6 +24,7 @@ app.use('/register', register);
 app.use('/login', login);
 app.use('/post-messages-jwt', postmessagesroute );
 app.use('/bookings-jwt', bookingusroute );
+app.use('/admin', adminRoute);
 
 // Start server
 app.listen(PORT, () => {

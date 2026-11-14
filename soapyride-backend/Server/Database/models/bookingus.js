@@ -38,13 +38,37 @@ const BookingSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Confirmed', 'Checked In', 'In Service Bay', 'Quality Check', 'Ready for Pickup', 'Completed'],
+    enum: [
+      'Pending',
+      'Approved',
+      'Rejected',
+      'Confirmed',
+      'Checked In',
+      'In Service Bay',
+      'Quality Check',
+      'Ready for Pickup',
+      'Completed',
+      'Cancelled'
+    ],
     default: 'Confirmed'
+  },
+  approvalStatus: {
+    type: String,
+    enum: ['Pending', 'Approved', 'Rejected', 'Rescheduled'],
+    default: 'Pending'
+  },
+  assignedMechanic: {
+    type: String,
+    default: ''
+  },
+  adminNotes: {
+    type: String,
+    default: ''
   },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: false
   }
 }, { timestamps: true });
 

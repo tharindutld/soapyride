@@ -102,8 +102,13 @@ const SignInPage = () => {
       toast.success(`Welcome back, ${res.data.user.name || 'Member'}!`);
 
       if (decoded.role === 'admin') {
-        navigate('/createPost');
+        localStorage.setItem('adminToken', res.data.token);
+        localStorage.setItem('userRole', 'admin');
+        refreshAuth();
+        navigate('/admin/dashboard');
       } else {
+        localStorage.setItem('userRole', 'user');
+        refreshAuth();
         navigate('/');
       }
     } catch (err) {
@@ -291,6 +296,19 @@ const SignInPage = () => {
               style={{ color: '#0284c7', fontWeight: 700, textDecoration: 'none' }}
             >
               Create an Account
+            </Link>
+          </Typography>
+          <Typography
+            variant="body2"
+            align="center"
+            sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid #e2e8f0', color: '#64748b' }}
+          >
+            Shop Owner or Manager?{' '}
+            <Link
+              to="/admin/login"
+              style={{ color: '#0f172a', fontWeight: 800, textDecoration: 'none' }}
+            >
+              Go to Separate Admin Login &rarr;
             </Link>
           </Typography>
         </form>

@@ -13,9 +13,15 @@ import {
   ChevronRightRounded,
   AccessTimeRounded,
 } from '@mui/icons-material';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 const Footer = () => {
+  const location = useLocation();
+
+  if (location.pathname === '/admin' || location.pathname.startsWith('/admin/dashboard')) {
+    return null;
+  }
+
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -123,6 +129,10 @@ const Footer = () => {
               <Link to="/contact" className="link-custom">
                 <ChevronRightRounded fontSize="small" sx={{ color: '#38bdf8' }} />
                 <span>Contact & Roadside Help</span>
+              </Link>
+              <Link to="/admin/login" className="link-custom">
+                <ChevronRightRounded fontSize="small" sx={{ color: '#38bdf8' }} />
+                <span>Admin & Shop Owner Login</span>
               </Link>
             </Box>
           </Grid>

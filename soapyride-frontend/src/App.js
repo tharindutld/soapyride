@@ -12,12 +12,14 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import LearnMorePage from './Pages/LearnMorePage';
 import BookingFormPage from './Pages/BookingFormPage';
+import AdminLoginPage from './AdminContainer/AdminLoginPage';
+import AdminDashboard from './AdminContainer/AdminDashboard';
 import { AuthProvider } from './context/AuthContext';
 
 function App() {
   return (
     <Router>
-      <AuthProvider> {/* Wrap everything with AuthProvider */}
+      <AuthProvider>
         <div className='App'>
           <Navbar />
           <ToastContainer position="top-right" autoClose={3000} />
@@ -30,6 +32,10 @@ function App() {
             <Route path="/service" element={<ServicesPage />} />
             <Route path="/learnmore" element={<LearnMorePage />} />
             <Route path="/bookingform" element={<BookingFormPage />} />
+            {/* Separate Admin / Owner Login & ERP Panel */}
+            <Route path="/admin/login" element={<AdminLoginPage />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
           </Routes>
           <Footer />
         </div>
