@@ -1,40 +1,38 @@
 import React from 'react';
-import Button from '@mui/material/Button';
+import { Button } from '@mui/material';
+import { CalendarMonthRounded } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
-function BookingButton() {
+function BookingButton({ onClick }) {
+  const navigate = useNavigate();
 
-    const navigate = useNavigate();
-
-    const handleSignIn = () => {
-      navigate('/bookingform');
+  const handleBook = () => {
+    if (onClick) onClick();
+    navigate('/bookingform');
   };
 
-    return(
-        <div >
-            <Button variant="outlined" sx={
-                {borderRadius:'50px',
-                    backgroundColor: '#0082fe',
-                 marginTop:'8px',
-                 fontWeight: '700',
-                color: '#ffffff',
-                backgroundColor: '#ff6b6b', // base color
-                borderColor: '#ff6b6b',
-                '&:hover': {
-                backgroundColor: '#e63946',
-                borderColor: '#e63946',
-                boxShadow: '0 4px 15px rgba(230, 57, 70, 0.7)',
-                color: '#ffffff'
-
-
-                 } 
-                }
-                
-                } onClick={handleSignIn} className="signin-btn">
-                
-                Book Us</Button>
-        </div>
-    )
+  return (
+    <Button
+      variant="contained"
+      startIcon={<CalendarMonthRounded fontSize="small" />}
+      onClick={handleBook}
+      sx={{
+        borderRadius: '10px',
+        padding: '7px 16px',
+        fontWeight: 700,
+        textTransform: 'none',
+        background: 'linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)',
+        color: '#ffffff',
+        boxShadow: '0 4px 14px rgba(2, 132, 199, 0.4)',
+        '&:hover': {
+          background: 'linear-gradient(135deg, #0369a1 0%, #0284c7 100%)',
+          boxShadow: '0 6px 20px rgba(2, 132, 199, 0.6)',
+        },
+      }}
+    >
+      Book Service
+    </Button>
+  );
 }
 
 export default BookingButton;

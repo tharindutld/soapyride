@@ -1,36 +1,39 @@
 import React from 'react';
-import Button from '@mui/material/Button';
+import { Button } from '@mui/material';
+import { LoginRounded } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
-function LoginButton() {
+function LoginButton({ onClick }) {
+  const navigate = useNavigate();
 
-    const navigate = useNavigate();
-
-    const handleSignIn = () => {
-      navigate('/signin');
+  const handleSignIn = () => {
+    if (onClick) onClick();
+    navigate('/signin');
   };
 
-    return(
-        <div >
-            <Button variant="outlined" sx={
-                {borderRadius:'50px',
-                    backgroundColor: '#0082fe',
-                 marginTop:'8px',
-                 fontWeight: '700',
-                 color:'#ffffff',
-                 '&:hover':{
-                    backgroundColor:'#3951c5',
-                    borderColor:'#3951c5',
-                    boxShadow:'0 4px 15px rgba(13, 53, 241, 1)',
-                    color:'whitesmoke',
-                 } 
-                }
-                
-                } onClick={handleSignIn} className="signin-btn">
-                
-                Log In</Button>
-        </div>
-    )
+  return (
+    <Button
+      variant="outlined"
+      startIcon={<LoginRounded fontSize="small" />}
+      onClick={handleSignIn}
+      sx={{
+        borderRadius: '10px',
+        padding: '6px 16px',
+        fontWeight: 700,
+        textTransform: 'none',
+        color: '#f8fafc',
+        borderColor: 'rgba(56, 189, 248, 0.45)',
+        backgroundColor: 'rgba(2, 132, 199, 0.16)',
+        '&:hover': {
+          backgroundColor: '#0284c7',
+          borderColor: '#38bdf8',
+          color: '#ffffff',
+        },
+      }}
+    >
+      Sign In
+    </Button>
+  );
 }
 
 export default LoginButton;

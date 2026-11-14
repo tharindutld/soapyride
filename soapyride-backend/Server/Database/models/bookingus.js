@@ -24,6 +24,23 @@ const BookingSchema = new mongoose.Schema({
   washPackage: {
     type: String
   },
+  vehicleNumber: {
+    type: String,
+    default: ''
+  },
+  notes: {
+    type: String,
+    default: ''
+  },
+  estimatedPrice: {
+    type: Number,
+    default: 0
+  },
+  status: {
+    type: String,
+    enum: ['Confirmed', 'Checked In', 'In Service Bay', 'Quality Check', 'Ready for Pickup', 'Completed'],
+    default: 'Confirmed'
+  },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

@@ -6,6 +6,12 @@ import {
   Twitter,
   YouTube,
   KeyboardArrowUp,
+  LocationOnRounded,
+  PhoneInTalkRounded,
+  EmailRounded,
+  LocalCarWashRounded,
+  ChevronRightRounded,
+  AccessTimeRounded,
 } from '@mui/icons-material';
 import { Link } from 'react-router-dom';
 
@@ -15,70 +21,177 @@ const Footer = () => {
   };
 
   return (
-    <Box sx={{ bgcolor: '#023e8a', color: '#fff', pt: 6, pb: 8, mt: 5 }}>
+    <Box
+      component="footer"
+      sx={{
+        bgcolor: '#0b192c',
+        color: '#f8fafc',
+        pt: 7,
+        pb: 5,
+        mt: 'auto',
+        borderTop: '1px solid rgba(56, 189, 248, 0.16)',
+      }}
+    >
       <Container maxWidth="lg">
         <Grid container spacing={4} justifyContent="space-between">
-          {/* Brand */}
+          {/* Brand Column */}
           <Grid item xs={12} sm={6} md={4}>
-            <Typography variant="h5" sx={{ color: '#90e0ef', mb: 1 }}>
-              SoapyRide
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+              <Box
+                sx={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                }}
+              >
+                <LocalCarWashRounded fontSize="small" />
+              </Box>
+              <Box>
+                <Typography
+                  variant="h5"
+                  sx={{
+                    fontFamily: "'Outfit', 'Segoe UI', sans-serif",
+                    fontWeight: 800,
+                    letterSpacing: '-0.5px',
+                    lineHeight: 1,
+                    display: 'inline-flex',
+                  }}
+                >
+                  <Box component="span" sx={{ color: '#38bdf8' }}>
+                    Soapy
+                  </Box>
+                  <Box component="span" sx={{ color: '#ffffff' }}>
+                    Ride
+                  </Box>
+                </Typography>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: 'block',
+                    letterSpacing: '0.2em',
+                    color: '#94a3b8',
+                    fontWeight: 700,
+                    fontSize: '0.62rem',
+                  }}
+                >
+                  AUTO SERVICE & DETAILING
+                </Typography>
+              </Box>
+            </Box>
+
+            <Typography variant="body2" sx={{ color: '#94a3b8', lineHeight: 1.7, mb: 2 }}>
+              Colombo&apos;s premier car service center for touchless snow-foam washing, 9H ceramic
+              protection, computerized OBD-II diagnostics, and 3D laser wheel alignment.
             </Typography>
-            <Typography variant="body2">
-              Freshen your ride with care and shine.
-            </Typography>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#cbd5e1', fontSize: '0.84rem' }}>
+              <AccessTimeRounded sx={{ fontSize: 17, color: '#38bdf8' }} />
+              <span>Open Daily: 7:30 AM – 7:00 PM</span>
+            </Box>
           </Grid>
 
           {/* Quick Links */}
-          <Grid item xs={12} sm={6} md={4}>
-            <Typography variant="h6" sx={{ color: '#ade8f4', mb: 1 }}>
-              Quick Links
+          <Grid item xs={12} sm={6} md={3}>
+            <Typography
+              variant="subtitle1"
+              sx={{ color: '#ffffff', fontWeight: 700, mb: 1.75 }}
+            >
+              Service Navigation
             </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Link to='/' href="#home" underline="hover" color="inherit" className="link-custom">
-                Home
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1 }}>
+              <Link to="/" className="link-custom">
+                <ChevronRightRounded fontSize="small" sx={{ color: '#38bdf8' }} />
+                <span>Home & Bay Status</span>
               </Link>
-              <Link to='/service' href="#services" underline="hover" color="inherit" className="link-custom">
-                Services
+              <Link to="/service" className="link-custom">
+                <ChevronRightRounded fontSize="small" sx={{ color: '#38bdf8' }} />
+                <span>Services & Packages</span>
               </Link>
-              <Link to='/about' href="#about" underline="hover" color="inherit" className="link-custom">
-                About Us
+              <Link to="/bookingform" className="link-custom">
+                <ChevronRightRounded fontSize="small" sx={{ color: '#38bdf8' }} />
+                <span>Book Service Bay</span>
               </Link>
-              <Link to='/contact' href="#contact" underline="hover" color="inherit" className="link-custom">
-                Contact Us
+              <Link to="/about" className="link-custom">
+                <ChevronRightRounded fontSize="small" sx={{ color: '#38bdf8' }} />
+                <span>About Our Center</span>
+              </Link>
+              <Link to="/contact" className="link-custom">
+                <ChevronRightRounded fontSize="small" sx={{ color: '#38bdf8' }} />
+                <span>Contact & Roadside Help</span>
               </Link>
             </Box>
           </Grid>
 
           {/* Contact + Social */}
           <Grid item xs={12} sm={12} md={4}>
-            <Typography variant="h6" sx={{ color: '#ade8f4', mb: 1 }}>
-              Contact
+            <Typography
+              variant="subtitle1"
+              sx={{ color: '#ffffff', fontWeight: 700, mb: 1.75 }}
+            >
+              Service Desk & Location
             </Typography>
-            <Typography variant="body2">📍  No. 247, Main Street, Colombo</Typography>
-            <Typography variant="body2">📞  +94 011 123 4567</Typography>
-            <Typography variant="body2">📧  info@soapyride.com</Typography>
 
-            <Box sx={{ mt: 2 }}>
-              <IconButton href="#" sx={{ color: '#fff' }}>
-                <Facebook />
-              </IconButton>
-              <IconButton href="#" sx={{ color: '#fff' }}>
-                <Instagram />
-              </IconButton>
-              <IconButton href="#" sx={{ color: '#fff' }}>
-                <Twitter />
-              </IconButton>
-              <IconButton href="#" sx={{ color: '#fff' }}>
-                <YouTube />
-              </IconButton>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, color: '#cbd5e1' }}>
+                <LocationOnRounded sx={{ fontSize: 19, color: '#38bdf8' }} />
+                <Typography variant="body2">No. 247, Main Street, Colombo 03</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, color: '#cbd5e1' }}>
+                <PhoneInTalkRounded sx={{ fontSize: 19, color: '#38bdf8' }} />
+                <Typography variant="body2">+94 11 234 5678 • Emergency: 1990</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, color: '#cbd5e1' }}>
+                <EmailRounded sx={{ fontSize: 19, color: '#38bdf8' }} />
+                <Typography variant="body2">info@soapyride.com</Typography>
+              </Box>
+            </Box>
+
+            <Box sx={{ mt: 2.5, display: 'flex', gap: 1 }}>
+              {[
+                { icon: <Facebook fontSize="small" />, label: 'Facebook' },
+                { icon: <Instagram fontSize="small" />, label: 'Instagram' },
+                { icon: <Twitter fontSize="small" />, label: 'Twitter' },
+                { icon: <YouTube fontSize="small" />, label: 'YouTube' },
+              ].map((social) => (
+                <IconButton
+                  key={social.label}
+                  href="#"
+                  aria-label={social.label}
+                  size="small"
+                  sx={{
+                    color: '#cbd5e1',
+                    bgcolor: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    '&:hover': {
+                      bgcolor: '#0284c7',
+                      color: '#fff',
+                    },
+                  }}
+                >
+                  {social.icon}
+                </IconButton>
+              ))}
             </Box>
           </Grid>
         </Grid>
 
         {/* Footer Bottom */}
-        <Box sx={{ textAlign: 'center', mt: 4 }}>
-          <Typography variant="caption" color="#bde0fe">
-            &copy; {new Date().getFullYear()} SoapyRide. All rights reserved.
+        <Box
+          sx={{
+            textAlign: 'center',
+            mt: 5,
+            pt: 3,
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
+          <Typography variant="caption" sx={{ color: '#64748b' }}>
+            &copy; {new Date().getFullYear()} SoapyRide Auto Service & Detailing Center. All rights
+            reserved.
           </Typography>
         </Box>
       </Container>
@@ -89,12 +202,13 @@ const Footer = () => {
         size="small"
         sx={{
           position: 'fixed',
-          bottom: 20,
-          right: 20,
-          bgcolor: '#0077b6',
+          bottom: 24,
+          right: 24,
+          bgcolor: '#0284c7',
           color: 'white',
+          boxShadow: '0 8px 20px rgba(2, 132, 199, 0.45)',
           '&:hover': {
-            bgcolor: '#023e8a',
+            bgcolor: '#0369a1',
           },
         }}
         aria-label="scroll to top"
