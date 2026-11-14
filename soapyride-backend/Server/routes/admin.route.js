@@ -615,7 +615,7 @@ const INITIAL_INVOICES = [
 const INITIAL_STAFF = [
   {
     _id: 'staff-101',
-    fullname: 'Tharindu Dissanayake',
+    fullname: 'System Administrator',
     email: 'admin@soapyride.com',
     phone: '0771122334',
     role: 'admin',
@@ -650,7 +650,9 @@ let memoryStore = {
   jobCards: [...INITIAL_JOB_CARDS],
   inventory: [...INITIAL_INVENTORY],
   invoices: [...INITIAL_INVOICES],
-  staff: [...INITIAL_STAFF]
+  staff: [...INITIAL_STAFF],
+  customers: [],
+  messages: []
 };
 
 // Seed MongoDB collections if connected and empty
@@ -712,7 +714,7 @@ router.post('/login', async (req, res) => {
       const token = jwt.sign(
         {
           userId: 'admin-owner-001',
-          name: 'Tharindu Dissanayake (Shop Owner)',
+          name: 'System Administrator',
           email: normalizedEmail,
           role: 'admin',
           isOwner: true
@@ -726,7 +728,7 @@ router.post('/login', async (req, res) => {
         message: 'Welcome to SoapyRide Admin Command Center',
         token,
         user: {
-          name: 'Tharindu Dissanayake (Owner)',
+          name: 'System Administrator',
           email: normalizedEmail,
           role: 'admin'
         }
@@ -1726,4 +1728,5 @@ router.get('/reports', async (req, res) => {
   }
 });
 
+router.memoryStore = memoryStore;
 module.exports = router;

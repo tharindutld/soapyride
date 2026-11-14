@@ -71,9 +71,10 @@ const BookingForm = () => {
     fetchBookings();
   }, [fetchBookings]);
 
+  const rawStoredName = localStorage.getItem('userName') || '';
   const initialValues = {
-    name: localStorage.getItem('userName') || '',
-    phone: '',
+    name: rawStoredName.toLowerCase().includes('tharindu') ? '' : rawStoredName,
+    phone: localStorage.getItem('userPhone') || '',
     vehicleNumber: '',
     date: todayStr,
     time: '09:30',

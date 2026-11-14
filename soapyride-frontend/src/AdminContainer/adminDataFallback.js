@@ -540,7 +540,7 @@ export const FALLBACK_INVOICES = [
 export const FALLBACK_STAFF = [
   {
     _id: 'staff-101',
-    fullname: 'Tharindu Dissanayake',
+    fullname: 'System Administrator',
     email: 'admin@soapyride.com',
     phone: '0771122334',
     role: 'admin',

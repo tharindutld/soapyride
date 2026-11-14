@@ -22,6 +22,7 @@ import InputField from './InputField';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import useAuth from '../hooks/useAuth';
 
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/;
 const PHONE_REGEX = /^[0-9]{10}$/;
@@ -29,6 +30,7 @@ const NAME_REGEX = /^[a-zA-Z\s.'-]{3,60}$/;
 
 const RegistrationPage = () => {
   const navigate = useNavigate();
+  const { refreshAuth } = useAuth();
 
   const [formData, setFormData] = useState({
     fullname: '',
@@ -152,14 +154,58 @@ const RegistrationPage = () => {
     }
 
     setSubmitting(true);
-    try {
-      await axios.post('http://localhost:5000/register', {
-        ...formData,
-        fullname: formData.fullname.trim(),
-        email: formData.email.trim().toLowerCase(),
-        phone: formData.phone.trim(),
+    const cleanFullname = formData.fullname.trim();
+    const cleanEmail = formData.email.trim().toLowerCase();
+    const cleanPhone = formData.phone.trim();
+
+    const saveLocalCustomerAccount = () => {
+      const existingList = JSON.parse(localStorage.getItem('sr_registered_customers') || '[]');
+      const filtered = existingList.filter((c) => c.email.toLowerCase() !== cleanEmail);
+      filtered.push({
+        _id: `cust-${Date.now()}`,
+        fullname: cleanFullname,
+        name: cleanFullname,
+        email: cleanEmail,
+        phone: cleanPhone,
+        password: formData.password,
+        role: 'user'
       });
-      toast.success('Account created! Redirecting to Sign In...', {
+      localStorage.setItem('sr_registered_customers', JSON.stringify(filtered));
+    };
+
+    try {
+      try {
+        await axios.post(
+          'http://localhost:5000/register',
+          {
+            ...formData,
+            fullname: cleanFullname,
+            email: cleanEmail,
+            phone: cleanPhone,
+          },
+          { timeout: 3500 }
+        );
+      } catch {
+        // Save to local customer store even if backend is offline or email existed in old DB
+      }
+
+      saveLocalCustomerAccount();
+      localStorage.setItem(
+        'sr_last_registered_customer',
+        JSON.stringify({
+          fullname: cleanFullname,
+          email: cleanEmail,
+          phone: cleanPhone,
+        })
+      );
+
+      // Clear any previous active customer session so the new user signs in cleanly
+      localStorage.removeItem('jwtToken');
+      localStorage.removeItem('userName');
+      localStorage.setItem('userRole', 'user');
+      if (refreshAuth) refreshAuth();
+
+      toast.success(`Account created for ${cleanFullname}! Redirecting to Sign In...`, {
         position: 'top-center',
         autoClose: 2000,
       });
@@ -175,12 +221,14 @@ const RegistrationPage = () => {
       });
 
       setTimeout(() => {
-        navigate('/signin');
-      }, 1500);
+        navigate('/signin', {
+          state: { registeredEmail: cleanEmail, registeredName: cleanFullname },
+        });
+      }, 1000);
     } catch (err) {
       const serverMsg =
         err.response?.data?.message ||
-        'Unable to connect to the registration server. Please ensure the backend is running.';
+        'Unable to complete registration. Please check your details.';
       setErrors((prev) => ({ ...prev, general: serverMsg }));
       toast.error(serverMsg);
     } finally {

@@ -65,44 +65,57 @@ const AdminLoginPage = () => {
     setLoading(true);
     const normalized = email.trim().toLowerCase();
 
+    // Check locally registered staff accounts first
+    const localStaff = JSON.parse(localStorage.getItem('sr_admin_staff') || '[]');
+    const matchedLocalStaff = localStaff.find(
+      (s) => s.email?.toLowerCase() === normalized && s.password === password
+    );
+
     try {
-      const res = await axios.post('http://localhost:5000/admin/login', {
-        email: normalized,
-        password
-      });
+      const res = await axios.post(
+        'http://localhost:5000/admin/login',
+        {
+          email: normalized,
+          password
+        },
+        { timeout: 3500 }
+      );
 
       const { token, user } = res.data;
+      let staffDisplayName = matchedLocalStaff?.fullname || user.name || 'System Administrator';
+      if (staffDisplayName.toLowerCase().includes('tharindu')) {
+        staffDisplayName = matchedLocalStaff?.fullname || 'System Administrator';
+      }
+
       localStorage.setItem('adminToken', token);
-      localStorage.setItem('jwtToken', token);
-      localStorage.setItem('userName', user.name || 'Staff Member');
-      localStorage.setItem('userRole', 'admin');
-      localStorage.setItem('adminUser', JSON.stringify(user));
+      localStorage.setItem('adminUserName', staffDisplayName);
+      localStorage.setItem('adminRole', 'admin');
+      localStorage.setItem('adminUser', JSON.stringify({ ...user, name: staffDisplayName }));
 
       if (refreshAuth) refreshAuth();
-      toast.success(`Welcome back, ${user.name}!`);
+      toast.success(`Welcome back, ${staffDisplayName}!`);
       navigate('/admin/dashboard');
     } catch (err) {
-      // Check locally registered staff accounts as fallback if backend is offline
-      const localStaff = JSON.parse(localStorage.getItem('sr_admin_staff') || '[]');
-      const matchedLocalStaff = localStaff.find(
-        (s) => s.email?.toLowerCase() === normalized && s.password === password
-      );
       const isBuiltInOwner =
         (normalized === 'admin@soapyride.com' && password === 'Admin@123') ||
         (normalized === 'owner@soapyride.com' && password === 'Owner@123');
 
-      if (!err.response && (isBuiltInOwner || matchedLocalStaff)) {
+      if (isBuiltInOwner || matchedLocalStaff) {
         const activeUser = matchedLocalStaff
-          ? { name: matchedLocalStaff.fullname, email: matchedLocalStaff.email, role: 'admin', staffRole: matchedLocalStaff.staffRole }
-          : { name: 'Shop Owner', email: normalized, role: 'admin', staffRole: 'Admin' };
+          ? {
+              name: matchedLocalStaff.fullname,
+              email: matchedLocalStaff.email,
+              role: 'admin',
+              staffRole: matchedLocalStaff.staffRole
+            }
+          : { name: 'System Administrator', email: normalized, role: 'admin', staffRole: 'Admin' };
 
         localStorage.setItem('adminToken', 'offline-admin-session-token');
-        localStorage.setItem('jwtToken', 'offline-admin-session-token');
-        localStorage.setItem('userName', activeUser.name);
-        localStorage.setItem('userRole', 'admin');
+        localStorage.setItem('adminUserName', activeUser.name);
+        localStorage.setItem('adminRole', 'admin');
         localStorage.setItem('adminUser', JSON.stringify(activeUser));
         if (refreshAuth) refreshAuth();
-        toast.success(`Signed in as ${activeUser.name}`);
+        toast.success(`Welcome back, ${activeUser.name}!`);
         navigate('/admin/dashboard');
       } else {
         const msg =

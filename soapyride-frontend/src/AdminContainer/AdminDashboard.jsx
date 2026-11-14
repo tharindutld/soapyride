@@ -102,7 +102,15 @@ const AdminDashboard = () => {
   });
   const [staffList, setStaffList] = useState(() => {
     const saved = localStorage.getItem('sr_admin_staff');
-    return saved ? JSON.parse(saved) : FALLBACK_STAFF;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return parsed.map((s) =>
+        s.email === 'admin@soapyride.com' && (s.fullname || '').toLowerCase().includes('tharindu')
+          ? { ...s, fullname: 'System Administrator' }
+          : s
+      );
+    }
+    return FALLBACK_STAFF;
   });
 
   // Filters
@@ -166,8 +174,8 @@ const AdminDashboard = () => {
 
   // Check Admin Authentication
   useEffect(() => {
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('jwtToken');
-    const role = localStorage.getItem('userRole');
+    const token = localStorage.getItem('adminToken');
+    const role = localStorage.getItem('adminRole') || localStorage.getItem('userRole');
     if (!token || role !== 'admin') {
       navigate('/admin/login');
     }
@@ -175,7 +183,7 @@ const AdminDashboard = () => {
 
   // Fetch all data from MERN Backend
   const fetchAllAdminData = useCallback(async () => {
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('jwtToken');
+    const token = localStorage.getItem('adminToken');
     if (!token || token === 'offline-admin-session-token') return;
 
     try {
@@ -198,7 +206,24 @@ const AdminDashboard = () => {
       if (mRes.data?.data) setMechanics(mRes.data.data);
       if (invRes.data?.data) setInventory(invRes.data.data);
       if (billRes.data?.data) setInvoices(billRes.data.data);
-      if (stRes.data?.data) setStaffList(stRes.data.data);
+      if (stRes.data?.data) {
+        const sanitizedServerStaff = stRes.data.data.map((s) =>
+          (s.fullname || '').toLowerCase().includes('tharindu')
+            ? { ...s, fullname: 'System Administrator' }
+            : s
+        );
+        const localSavedStaff = JSON.parse(localStorage.getItem('sr_admin_staff') || '[]').map((s) =>
+          (s.fullname || '').toLowerCase().includes('tharindu')
+            ? { ...s, fullname: 'System Administrator' }
+            : s
+        );
+        const serverEmails = new Set(sanitizedServerStaff.map((s) => (s.email || '').toLowerCase()));
+        const mergedStaff = [
+          ...localSavedStaff.filter((s) => !serverEmails.has((s.email || '').toLowerCase())),
+          ...sanitizedServerStaff
+        ];
+        setStaffList(mergedStaff);
+      }
     } catch {
       // Uses local synchronized state if backend is offline
     }
@@ -210,9 +235,8 @@ const AdminDashboard = () => {
 
   const handleAdminLogout = () => {
     localStorage.removeItem('adminToken');
-    localStorage.removeItem('jwtToken');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userRole');
+    localStorage.removeItem('adminUserName');
+    localStorage.removeItem('adminRole');
     localStorage.removeItem('adminUser');
     if (refreshAuth) refreshAuth();
     toast.info('Logged out of Admin Command Center');
@@ -1814,7 +1838,13 @@ const AdminDashboard = () => {
               {navModules.find((n) => n.id === activeTab)?.label || 'Workshop Command Center'}
             </h1>
             <p className="admin-topbar-sub">
-              Logged in as <strong>{localStorage.getItem('userName') || 'Shop Owner'}</strong> • SoapyRide Management Suite
+              Logged in as{' '}
+              <strong>
+                {(localStorage.getItem('adminUserName') || '').toLowerCase().includes('tharindu')
+                  ? 'System Administrator'
+                  : localStorage.getItem('adminUserName') || 'System Administrator'}
+              </strong>{' '}
+              • SoapyRide Management Suite
             </p>
           </div>
 
@@ -4486,7 +4516,7 @@ const AdminDashboard = () => {
                 <input
                   name="performedBy"
                   className={`pro-input ${formErrors.performedBy ? 'input-error' : ''}`}
-                  defaultValue={localStorage.getItem('userName') || 'Shop Admin'}
+                  defaultValue={localStorage.getItem('adminUserName') || 'Shop Admin'}
                 />
                 {renderFieldError('performedBy')}
               </div>

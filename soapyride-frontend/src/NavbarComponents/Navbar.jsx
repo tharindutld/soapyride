@@ -21,6 +21,10 @@ const Navbar = () => {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  React.useEffect(() => {
+    if (refreshAuth) refreshAuth();
+  }, [location.pathname, refreshAuth]);
+
   // Hide customer navbar inside the Admin ERP workspace
   if (location.pathname === '/admin' || location.pathname.startsWith('/admin/dashboard')) {
     return null;
