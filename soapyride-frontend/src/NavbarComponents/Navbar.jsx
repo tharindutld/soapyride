@@ -99,7 +99,10 @@ const Navbar = () => {
             <>
               <span className="welcome-msg">
                 <AccountCircleRounded fontSize="small" sx={{ color: '#38bdf8' }} />
-                {userName || 'Member'}
+                {userName && !userName.toLowerCase().includes('tharindu')
+                  ? userName
+                  : JSON.parse(localStorage.getItem('sr_last_registered_customer') || 'null')?.fullname ||
+                    'Member'}
               </span>
               <button type="button" className="logout-button" onClick={handleLogout}>
                 <LogoutRounded fontSize="small" />

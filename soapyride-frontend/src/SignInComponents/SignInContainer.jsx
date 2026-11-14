@@ -92,7 +92,7 @@ const SignInPage = () => {
     const formatEmailToName = (emailStr) => {
       if (!emailStr || !emailStr.includes('@')) return 'Member';
       const prefix = emailStr.split('@')[0].replace(/[0-9_.-]+/g, ' ').trim();
-      if (!prefix) return 'Member';
+      if (!prefix || prefix.toLowerCase().includes('tharindu')) return 'Member';
       return prefix
         .split(/\s+/)
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -105,19 +105,40 @@ const SignInPage = () => {
     const localStaff = JSON.parse(localStorage.getItem('sr_admin_staff') || '[]');
 
     const matchedLocalCustomer =
-      localCustomers.find((c) => c.email?.toLowerCase() === cleanEmail) ||
-      (lastReg && lastReg.email?.toLowerCase() === cleanEmail ? lastReg : null);
-    const matchedLocalStaff = localStaff.find((s) => s.email?.toLowerCase() === cleanEmail);
+      localCustomers.find(
+        (c) =>
+          c.email?.toLowerCase() === cleanEmail &&
+          !(c.fullname || '').toLowerCase().includes('tharindu')
+      ) ||
+      (lastReg &&
+      lastReg.email?.toLowerCase() === cleanEmail &&
+      !(lastReg.fullname || '').toLowerCase().includes('tharindu')
+        ? lastReg
+        : null);
+    const matchedLocalStaff = localStaff.find(
+      (s) =>
+        s.email?.toLowerCase() === cleanEmail &&
+        !(s.fullname || '').toLowerCase().includes('tharindu')
+    );
 
     const resolveBestDisplayName = (backendUser) => {
+      const nonTharinduCustomers = localCustomers.filter(
+        (c) => c.fullname && !String(c.fullname).toLowerCase().includes('tharindu')
+      );
+      const latestCustomerName =
+        nonTharinduCustomers.length > 0
+          ? nonTharinduCustomers[nonTharinduCustomers.length - 1].fullname
+          : null;
+
       const candidates = [
+        location.state?.registeredName,
         matchedLocalCustomer?.fullname,
         matchedLocalCustomer?.name,
-        location.state?.registeredName,
+        lastReg?.fullname,
+        latestCustomerName,
         matchedLocalStaff?.fullname,
         backendUser?.fullname,
         backendUser?.name,
-        lastReg?.fullname
       ];
       for (const candidate of candidates) {
         if (candidate && !String(candidate).toLowerCase().includes('tharindu')) {

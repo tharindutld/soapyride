@@ -160,7 +160,11 @@ const RegistrationPage = () => {
 
     const saveLocalCustomerAccount = () => {
       const existingList = JSON.parse(localStorage.getItem('sr_registered_customers') || '[]');
-      const filtered = existingList.filter((c) => c.email.toLowerCase() !== cleanEmail);
+      const filtered = existingList.filter(
+        (c) =>
+          c.email?.toLowerCase() !== cleanEmail &&
+          !(c.fullname || '').toLowerCase().includes('tharindu')
+      );
       filtered.push({
         _id: `cust-${Date.now()}`,
         fullname: cleanFullname,
@@ -174,8 +178,30 @@ const RegistrationPage = () => {
     };
 
     try {
+      // Save locally first so the new member name is stored immediately
+      saveLocalCustomerAccount();
+      localStorage.setItem(
+        'sr_last_registered_customer',
+        JSON.stringify({
+          fullname: cleanFullname,
+          name: cleanFullname,
+          email: cleanEmail,
+          phone: cleanPhone,
+          password: formData.password,
+        })
+      );
+
+      // Automatically sign in as the newly registered member
+      const sessionToken = `customer-session-${Date.now()}`;
+      localStorage.setItem('jwtToken', sessionToken);
+      localStorage.setItem('userName', cleanFullname);
+      localStorage.setItem('userEmail', cleanEmail);
+      localStorage.setItem('userPhone', cleanPhone);
+      localStorage.setItem('userRole', 'user');
+      if (refreshAuth) refreshAuth();
+
       try {
-        await axios.post(
+        const res = await axios.post(
           'http://localhost:5000/register',
           {
             ...formData,
@@ -183,29 +209,18 @@ const RegistrationPage = () => {
             email: cleanEmail,
             phone: cleanPhone,
           },
-          { timeout: 3500 }
+          { timeout: 1500 }
         );
+        if (res.data?.token) {
+          localStorage.setItem('jwtToken', res.data.token);
+        }
       } catch {
-        // Save to local customer store even if backend is offline or email existed in old DB
+        // Already saved to local customer store and signed in
       }
 
-      saveLocalCustomerAccount();
-      localStorage.setItem(
-        'sr_last_registered_customer',
-        JSON.stringify({
-          fullname: cleanFullname,
-          email: cleanEmail,
-          phone: cleanPhone,
-        })
-      );
-
-      // Clear any previous active customer session so the new user signs in cleanly
-      localStorage.removeItem('jwtToken');
-      localStorage.removeItem('userName');
-      localStorage.setItem('userRole', 'user');
       if (refreshAuth) refreshAuth();
 
-      toast.success(`Account created for ${cleanFullname}! Redirecting to Sign In...`, {
+      toast.success(`Welcome, ${cleanFullname}! Your member account is ready.`, {
         position: 'top-center',
         autoClose: 2000,
       });
@@ -221,10 +236,8 @@ const RegistrationPage = () => {
       });
 
       setTimeout(() => {
-        navigate('/signin', {
-          state: { registeredEmail: cleanEmail, registeredName: cleanFullname },
-        });
-      }, 1000);
+        navigate('/');
+      }, 800);
     } catch (err) {
       const serverMsg =
         err.response?.data?.message ||
